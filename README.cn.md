@@ -76,40 +76,70 @@ flowchart TB
 
 ---
 
-## 当前编码进展
+## 当前进度 — 还差什么
 
-> 仅供项目负责人速览状态，不是 pipeline 文档。颜色映射：🟩 已完成 / 🟨 进行中（代码就绪但还没端到端 exercise） / ⬜ 未开始
+> 颜色：🟩 已就绪（真实实验可立即使用） / 🟨 等待中（等真实数据 / 等任务交付）。
+> 下图把 pipeline 节点和供给任务画在一起，**虚线框节点 = 待交付任务**（标注 owner），实线黄节点 = 等输入/等下游、暂时不能跑真实实验的。
 
 ```mermaid
 flowchart TB
-    Q([User Query]):::done
-    KB[(静态知识库 S)]:::done
-    PX[(污染集 P_x)]:::done
+    %% ===== 待交付任务（虚线框，标 owner） =====
+    TA["任务A · 队友<br/>300 篇 Brisbane 语料"]:::task
+    TC["任务C · 队友<br/>30 个真实 query"]:::task
+    TL["负责人本人<br/>Attack types + poison 模板"]:::task
+    TB["任务B · 队友<br/>Related Work survey"]:::task
 
-    EMB["Embedding<br/><span style='font-size:0.85em'>sentence-transformers</span>"]:::done
-    FAISS["FAISS 向量检索"]:::done
-    K1["clean / poisoned<br/>top-k₁"]:::done
-    RER["LLM Reranker<br/><span style='font-size:0.85em'>4 models via OpenRouter</span>"]:::done
-    GEN["LLM Generator<br/><span style='font-size:0.85em'>opt-in via UI toggle</span>"]:::done
+    %% ===== RAG 输入（等真实数据） =====
+    Q([User Query]):::wait
+    KB[(静态知识库 S)]:::wait
+    PX[(污染集 P_x)]:::wait
 
-    K2[/"top-k₂ 排名对比"/]:::done
-    ANS[/"自然语言答案<br/><span style='font-size:0.85em'>Stage 3 双栏对比</span>"/]:::done
+    %% ===== Pipeline 代码（已就绪） =====
+    EMB["Embedding"]:::ready
+    FAISS["FAISS 向量检索"]:::ready
+    K1["top-k₁"]:::ready
+    RER["LLM Reranker<br/>4 models via OpenRouter"]:::ready
+    GEN["LLM Generator<br/>opt-in UI toggle"]:::ready
+    K2[/"top-k₂ 排名对比"/]:::ready
+    ANS[/"自然语言答案"/]:::ready
 
+    %% ===== 最终产出（阻塞中） =====
+    EXP["真实实验<br/>30q × 5 poison × 4 LLM ≈ 600 组合"]:::wait
+    REP["Report 写作"]:::wait
+
+    %% 任务 → 输入 供给关系
+    TC -.->|交付| Q
+    TA -.->|交付| KB
+    TL -.->|设计| PX
+
+    %% Pipeline 主流
     Q --> EMB
     KB --> EMB
     PX -. 运行时注入 .-> EMB
     EMB --> FAISS --> K1 --> RER --> K2 --> GEN --> ANS
 
-    classDef done fill:#86efac,stroke:#15803d,color:#14532d,stroke-width:2px
-    classDef progress fill:#fde68a,stroke:#b45309,color:#78350f,stroke-width:2px
-    classDef todo fill:#ffffff,stroke:#9ca3af,color:#374151,stroke-width:1.5px,stroke-dasharray:5 3
+    %% 下游阻塞链
+    ANS --> EXP
+    EXP --> REP
+    TB -.->|素材| REP
+
+    classDef ready fill:#86efac,stroke:#15803d,color:#14532d,stroke-width:2px
+    classDef wait fill:#fde68a,stroke:#b45309,color:#78350f,stroke-width:2px
+    classDef task fill:#fde68a,stroke:#b45309,color:#78350f,stroke-width:2px,stroke-dasharray:5 3
 ```
 
-**最近一次更新（2026-05-12）**
+**仍需交付**（按阻塞链优先级）：
 
-- 🟩 **LLM Reranker**：4 家（Claude 4.5 Sonnet / GPT-4o-mini / Gemini 2.0 Flash / Llama 3.3 70B）全部通过 OpenRouter 接通验证。初步冒烟测试 4/4 都被 dummy `P_demo` 攻击成功（k2 poison 全部抢占前 3 位）。
-- 🟩 **LLM Generator**：UI 加了 `Include generator` checkbox（默认 OFF，cost ~$0.02/run with Claude），勾上后 Run 会走真实 generator 并在 Stage 3 双栏显示 clean vs poisoned 自然语言答案。
-- 🟩 **自然语言答案外显**：`app.py` 已加 Stage 3 双栏渲染，与 toggle 联动条件显示。
+- 🟨 **任务A** — 300 篇 Brisbane 真实语料（**队友**）→ 接入 KB → 解锁真实实验
+- 🟨 **任务C** — 30 个真实 query（**队友**）→ 接入 Q → 解锁真实实验
+- 🟨 **Attack types + poison 模板设计**（**负责人本人**，**不等队友、可立即开始**）→ 接入 P_x → 解锁真实实验
+- 🟨 **任务B** — Related Work survey（**队友**）→ 不阻塞实验，但阻塞 Report 写作
+
+**已就绪**（图中绿色节点）：
+
+- 🟩 Pipeline 8 模块 + 4 LLM rerankers 通过 OpenRouter 集成，dummy 数据上端到端跑通
+- 🟩 UI 完整（Stage 1 / Stage 2 排名对比 + Stage 3 自然语言答案对比，Generator opt-in toggle，~$0.02/run with Claude）
+- 🟩 调试工具链（`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py`）
 
 ---
 
