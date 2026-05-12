@@ -153,6 +153,9 @@ Temporary Items
 # 可由代码重新生成的产物,无需进 git
 __pycache__/
 data/cache/
+# 实验输出:每次 run_experiment.py 会写一份带时间戳的 CSV,默认不跟踪。
+# 想保留某次"最终 report 数据",手动 `git add -f data/results/某个.csv`。
+data/results/
 
 CLAUDE.md
 .claude/*
