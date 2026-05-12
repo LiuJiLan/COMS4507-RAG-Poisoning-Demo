@@ -161,3 +161,6 @@ CLAUDE.md
 .claude/*
 notes/*
 refs/*
+
+# 队友/外部发来的、还没正式入库的临时文件丢这里。验证后会迁到 data/ 或丢弃。
+staging/

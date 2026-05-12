@@ -87,8 +87,9 @@ def main() -> None:
     if config.FAISS_CACHE.exists() and config.DOCS_CACHE.exists():
         pipeline.load_cached_index(config.FAISS_CACHE, config.DOCS_CACHE)
     else:
-        docs = load_corpus(config.DEFAULT_CORPUS_FILE)
-        pipeline.initialize(docs)
+        base_docs = load_corpus(config.BASE_CORPUS_FILE)
+        background_docs = load_corpus(config.BACKGROUND_CORPUS_FILE)
+        pipeline.initialize(base_docs + background_docs)
 
     # ---- 加载 poison set ----
     poison_path = config.POISON_DIR / f"{POISON_SET}.json"

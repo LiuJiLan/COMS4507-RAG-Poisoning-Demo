@@ -132,6 +132,13 @@ def check_sentence_transformers() -> str:
             f"embedding shape: {vec.shape}, dim: {vec.shape[1]}")
 
 
+def check_datasets() -> str:
+    """ADJ-001:HuggingFace `datasets` 库,用于拉 MS MARCO 背景集合。仅 import 检查,不下载数据。"""
+    import datasets
+    from datasets import load_dataset  # noqa: F401  仅做 import 验证
+    return f"datasets {datasets.__version__}, load_dataset import OK"
+
+
 def check_end_to_end() -> str:
     """组合 sentence-transformers + FAISS 模拟一次真实 retrieval,看 top-1 是否合理。"""
     import torch
@@ -190,6 +197,7 @@ def main() -> int:
     check("PyYAML", check_pyyaml)
     check("python-dotenv", check_dotenv)
     check("sentence-transformers (downloads ~80 MB on first run)", check_sentence_transformers)
+    check("HuggingFace datasets (ADJ-001, import only)", check_datasets)
     check("End-to-end smoke test (embedder + FAISS)", check_end_to_end)
 
     # ------------------------------------------------------------------
@@ -223,6 +231,8 @@ def main() -> int:
         print("  - sentence-transformers:  pip install sentence-transformers")
         print("    If model download is slow, try HF mirror:")
         print("      set HF_ENDPOINT=https://hf-mirror.com")
+    if any("datasets" in n for n in failed_names):
+        print("  - HuggingFace datasets:  pip install datasets")
     if any(p in failed_names for p in ["Streamlit", "NumPy", "PyYAML", "python-dotenv"]):
         print("  - misc:  pip install streamlit numpy pyyaml python-dotenv pandas")
     return 1

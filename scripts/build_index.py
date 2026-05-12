@@ -22,9 +22,16 @@ from src.retriever import FAISSRetriever
 
 
 def main():
-    print(f"Loading corpus from: {config.DEFAULT_CORPUS_FILE}")
-    docs = load_corpus(config.DEFAULT_CORPUS_FILE)
-    print(f"Loaded {len(docs)} documents")
+    print(f"Loading BASE corpus from: {config.BASE_CORPUS_FILE}")
+    base_docs = load_corpus(config.BASE_CORPUS_FILE)
+    print(f"  base docs: {len(base_docs)}")
+
+    print(f"Loading BACKGROUND corpus from: {config.BACKGROUND_CORPUS_FILE}")
+    background_docs = load_corpus(config.BACKGROUND_CORPUS_FILE)
+    print(f"  background docs: {len(background_docs)}")
+
+    all_docs = base_docs + background_docs
+    print(f"Combined corpus: {len(all_docs)} documents")
 
     print(f"Loading embedder: {config.EMBEDDING_MODEL} on {config.EMBEDDING_DEVICE}")
     embedder = Embedder(model_name=config.EMBEDDING_MODEL,
@@ -32,7 +39,7 @@ def main():
 
     print("Building FAISS index...")
     retriever = FAISSRetriever(embedder=embedder)
-    retriever.build_from_documents(docs, show_progress=True)
+    retriever.build_from_documents(all_docs, show_progress=True)
 
     print(f"Saving to cache:\n  {config.FAISS_CACHE}\n  {config.DOCS_CACHE}")
     retriever.save(config.FAISS_CACHE, config.DOCS_CACHE)

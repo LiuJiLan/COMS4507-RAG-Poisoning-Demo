@@ -12,24 +12,31 @@ UQ COMS4507 课程作业 —— 评估数据投毒攻击对 RAG 系统 retrieval
 flowchart TB
     %% ===== 输入层 =====
     Q([User Query]):::input
-    KB[(静态知识库 S)]:::input
+    subgraph KB[静态知识库 S]
+        direction TB
+        BG[("背景集合<br/>MS MARCO ~5000<br/><span style='font-size:0.85em'>通用噪声</span>")]:::input
+        BASE[("基准集合<br/>Brisbane ~300<br/><span style='font-size:0.85em'>主题对齐</span>")]:::input
+    end
     PX[(污染集 P_x)]:::input
 
-    %% ===== RAG 内部 =====
-    EMB["Embedding<br/><span style='font-size:0.85em'>sentence-transformers</span>"]:::internal
-    FAISS["FAISS 向量检索<br/><span style='font-size:0.85em'>top-k₁ = 10</span>"]:::internal
-    K1["clean / poisoned<br/>各一组 top-k₁<br/><span style='font-size:0.85em'>(UI 展示,标注为内部中间结果)</span>"]:::internal
-    RER["LLM Reranker<br/><span style='font-size:0.85em'>多模型对比维度</span>"]:::internal
-    GEN["LLM Generator<br/><span style='font-size:0.85em'>固定单模型</span>"]:::internal
+    %% ===== RAG Pipeline（所有处理步骤都在 RAG 内部;颜色区分"中间步骤"vs"UI 主展示"） =====
+    subgraph RAG[RAG Pipeline]
+        direction TB
+        EMB["Embedding<br/><span style='font-size:0.85em'>sentence-transformers</span>"]:::internal
+        FAISS["FAISS 向量检索<br/><span style='font-size:0.85em'>top-k₁ = 10</span>"]:::internal
+        K1[/"top-k₁ 排名对比<br/>clean vs poisoned<br/><span style='font-size:0.85em'>(中间结果,UI 也展示)</span>"/]:::display
+        RER["LLM Reranker<br/><span style='font-size:0.85em'>多模型对比维度</span>"]:::internal
+        K2[/"top-k₂ 排名对比<br/>clean vs poisoned"/]:::display
+        GEN["LLM Generator<br/><span style='font-size:0.85em'>固定单模型</span>"]:::internal
+        ANS[/"自然语言答案<br/>clean vs poisoned"/]:::display
 
-    %% ===== 外显展示 =====
-    K2[/"top-k₂ 排名对比<br/>clean vs poisoned"/]:::display
-    ANS[/"自然语言答案<br/>clean vs poisoned"/]:::display
+        EMB --> FAISS --> K1 --> RER --> K2 --> GEN --> ANS
+    end
 
     Q --> EMB
-    KB --> EMB
+    BG --> EMB
+    BASE --> EMB
     PX -. 运行时注入 .-> EMB
-    EMB --> FAISS --> K1 --> RER --> K2 --> GEN --> ANS
 
     classDef input fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a,stroke-width:1.5px
     classDef internal fill:#f3f4f6,stroke:#4b5563,color:#1f2937,stroke-width:1.2px
@@ -40,9 +47,9 @@ flowchart TB
 
 | 颜色 | 含义 | 节点 |
 |---|---|---|
-| 🟦 蓝色（圆角 / 圆柱） | **输入** | 用户 query、静态语料库 S、运行时切换的污染集 P_x |
-| ⬜ 灰色（矩形） | **RAG 内部** | embedding、向量检索、LLM reranker / generator —— 流水线内部组件 |
-| 🟨 黄色（平行四边形） | **外显主展示** | top-k₂ 排名对比表 + 自然语言答案（clean vs poisoned 并列） |
+| 🟦 蓝色（圆角 / 圆柱） | **输入** | 用户 query、静态语料库 S（背景 + 基准）、运行时切换的污染集 P_x |
+| ⬜ 灰色（矩形） | **RAG 中间处理步骤** | embedding、向量检索、LLM reranker / generator —— 不直接展示给观众的内部组件 |
+| 🟨 黄色（平行四边形） | **RAG 输出 & UI 主展示** | top-k₁ / top-k₂ 排名对比 + 自然语言答案 —— pipeline 的产出,UI 上对 clean vs poisoned 并列展示 |
 
 **关键点**
 
@@ -85,13 +92,14 @@ flowchart TB
 flowchart TB
     %% ===== 待交付任务（虚线框，标 owner） =====
     TA["任务A · 队友<br/>300 篇 Brisbane 语料"]:::task
-    TC["任务C · 队友<br/>30 个真实 query"]:::task
+    TC["任务C · 队友<br/>30 query · v2 已交付<br/>v3 修订中"]:::partial
     TL["负责人本人<br/>Attack types + poison 模板"]:::task
     TB["任务B · 队友<br/>Related Work survey"]:::task
 
-    %% ===== RAG 输入（等真实数据） =====
-    Q([User Query]):::wait
-    KB[(静态知识库 S)]:::wait
+    %% ===== RAG 输入（部分就绪） =====
+    Q([User Query · v2 可用]):::partial
+    BG[("背景集合<br/>MS MARCO 5000<br/>已就绪")]:::ready
+    BASE[("基准集合<br/>Brisbane ~300")]:::wait
     PX[(污染集 P_x)]:::wait
 
     %% ===== Pipeline 代码（已就绪） =====
@@ -109,12 +117,13 @@ flowchart TB
 
     %% 任务 → 输入 供给关系
     TC -.->|交付| Q
-    TA -.->|交付| KB
+    TA -.->|交付| BASE
     TL -.->|设计| PX
 
     %% Pipeline 主流
     Q --> EMB
-    KB --> EMB
+    BG --> EMB
+    BASE --> EMB
     PX -. 运行时注入 .-> EMB
     EMB --> FAISS --> K1 --> RER --> K2 --> GEN --> ANS
 
@@ -126,20 +135,22 @@ flowchart TB
     classDef ready fill:#86efac,stroke:#15803d,color:#14532d,stroke-width:2px
     classDef wait fill:#fde68a,stroke:#b45309,color:#78350f,stroke-width:2px
     classDef task fill:#fde68a,stroke:#b45309,color:#78350f,stroke-width:2px,stroke-dasharray:5 3
+    classDef partial fill:#dcfce7,stroke:#15803d,color:#14532d,stroke-width:2px,stroke-dasharray:3 3
 ```
 
 **仍需交付**（按阻塞链优先级）：
 
-- 🟨 **任务A** — 300 篇 Brisbane 真实语料（**队友**）→ 接入 KB → 解锁真实实验
-- 🟨 **任务C** — 30 个真实 query（**队友**）→ 接入 Q → 解锁真实实验
+- 🟨 **任务A** — 300 篇 Brisbane 真实语料（**队友**）→ 接入基准集合 → 解锁真实实验
+- 🟢 **任务C** — 30 个真实 query（**队友**）→ v2 已交付,v3 修订中（删 4 / 改 2 / 增 4 多样化攻击意图）→ 修订完即可解锁
 - 🟨 **Attack types + poison 模板设计**（**负责人本人**，**不等队友、可立即开始**）→ 接入 P_x → 解锁真实实验
 - 🟨 **任务B** — Related Work survey（**队友**）→ 不阻塞实验，但阻塞 Report 写作
 
 **已就绪**（图中绿色节点）：
 
 - 🟩 Pipeline 8 模块 + 4 LLM rerankers 通过 OpenRouter 集成，dummy 数据上端到端跑通
-- 🟩 UI 完整（Stage 1 / Stage 2 排名对比 + Stage 3 自然语言答案对比，Generator opt-in toggle，~$0.02/run with Claude）
-- 🟩 调试工具链（`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py`）
+- 🟩 静态库分两层(ADJ-001):背景集合 MS MARCO 5000 篇已就绪(`scripts/prepare_msmarco.py` + `data/corpus_static/msmarco_background.json`),基准集合等任务 A
+- 🟩 UI 完整(Stage 1 / Stage 2 排名对比 + Stage 3 自然语言答案对比,Generator opt-in toggle,来源 tag `BG`/`BASE`/☣,~$0.02/run with Claude)
+- 🟩 调试工具链(`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py` / `prepare_msmarco.py`)
 
 ---
 

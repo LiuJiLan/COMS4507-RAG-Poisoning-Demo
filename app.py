@@ -75,13 +75,15 @@ def get_pipeline():
         except Exception as e:
             st.warning(f"Cache load failed ({e}), rebuilding...")
 
-    # Build from scratch
-    if not config.DEFAULT_CORPUS_FILE.exists():
-        st.error(f"Corpus file not found: {config.DEFAULT_CORPUS_FILE}")
-        st.stop()
+    # Build from scratch (combine BASE + BACKGROUND, ADJ-001)
+    for f in (config.BASE_CORPUS_FILE, config.BACKGROUND_CORPUS_FILE):
+        if not f.exists():
+            st.error(f"Corpus file not found: {f}")
+            st.stop()
 
-    docs = load_corpus(config.DEFAULT_CORPUS_FILE)
-    pipeline.initialize(docs)
+    base_docs = load_corpus(config.BASE_CORPUS_FILE)
+    background_docs = load_corpus(config.BACKGROUND_CORPUS_FILE)
+    pipeline.initialize(base_docs + background_docs)
 
     # Save cache for next time
     try:
@@ -90,6 +92,13 @@ def get_pipeline():
         st.warning(f"Failed to save cache: {e}")
 
     return pipeline
+
+
+def _source_tag(doc) -> str:
+    """ADJ-001: 给 top-k 列表里的文档贴一个来源 tag。poison 文档用 ☣,这里返回 "" 让 marker 处理。"""
+    if doc.is_poison:
+        return ""
+    return " `BG`" if doc.source == "msmarco" else " `BASE`"
 
 
 @st.cache_data
@@ -119,7 +128,11 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### Pipeline status")
     pipeline = get_pipeline()
-    st.metric("Clean docs", pipeline.retriever.n_clean)
+    _docs = pipeline.retriever.documents
+    n_background = sum(1 for d in _docs if d.source == "msmarco")
+    n_base = sum(1 for d in _docs if d.source != "msmarco" and not d.is_poison)
+    st.metric("Background docs", n_background)
+    st.metric("Base docs", n_base)
     st.metric("Poison docs", pipeline.retriever.n_poison)
 
     st.markdown("---")
@@ -218,7 +231,7 @@ if page == "Dashboard":
             st.markdown("#### Without poison")
             for r in result.top_k1_clean:
                 st.markdown(
-                    f"**{r.rank}.** {r.doc.title}  \n"
+                    f"**{r.rank}.**{_source_tag(r.doc)} {r.doc.title}  \n"
                     f"&nbsp;&nbsp;&nbsp;<small>score: {r.score:.4f}</small>",
                     unsafe_allow_html=True,
                 )
@@ -230,7 +243,7 @@ if page == "Dashboard":
                 color = "#A32D2D" if r.doc.is_poison else "inherit"
                 st.markdown(
                     f"<span style='color: {color}'>"
-                    f"**{r.rank}.**{marker} {r.doc.title}</span>  \n"
+                    f"**{r.rank}.**{marker}{_source_tag(r.doc)} {r.doc.title}</span>  \n"
                     f"&nbsp;&nbsp;&nbsp;<small>score: {r.score:.4f}</small>",
                     unsafe_allow_html=True,
                 )
@@ -259,7 +272,7 @@ if page == "Dashboard":
             st.markdown("#### Without poison")
             for r in result.top_k2_clean:
                 st.markdown(
-                    f"**{r.rank}.** {r.doc.title}  \n"
+                    f"**{r.rank}.**{_source_tag(r.doc)} {r.doc.title}  \n"
                     f"&nbsp;&nbsp;&nbsp;<small>orig score: {r.score:.4f}</small>",
                     unsafe_allow_html=True,
                 )
@@ -271,7 +284,7 @@ if page == "Dashboard":
                 color = "#A32D2D" if r.doc.is_poison else "inherit"
                 st.markdown(
                     f"<span style='color: {color}'>"
-                    f"**{r.rank}.**{marker} {r.doc.title}</span>  \n"
+                    f"**{r.rank}.**{marker}{_source_tag(r.doc)} {r.doc.title}</span>  \n"
                     f"&nbsp;&nbsp;&nbsp;<small>orig score: {r.score:.4f}</small>",
                     unsafe_allow_html=True,
                 )

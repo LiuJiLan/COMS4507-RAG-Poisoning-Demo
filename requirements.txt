@@ -9,3 +9,6 @@ pandas>=2.0.0
 # LLM access — all models routed through OpenRouter (Claude / GPT / Gemini /
 # Llama / ...), so we only need an HTTP client, no per-provider SDKs.
 requests>=2.31.0
+
+# ADJ-001: 拉 MS MARCO 作为背景集合(scripts/prepare_msmarco.py)
+datasets>=2.16.0

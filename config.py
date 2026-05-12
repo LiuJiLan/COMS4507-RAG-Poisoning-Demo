@@ -19,13 +19,16 @@ POISON_DIR = DATA_DIR / "poison_sets"
 CACHE_DIR = DATA_DIR / "cache"
 QUERY_FILE = DATA_DIR / "test_queries.yaml"
 
-# 默认语料库文件名（任务 A 的产出）
-DEFAULT_CORPUS_FILE = CORPUS_DIR / "brisbane_corpus.json"
+# 静态库分两层（ADJ-001）：
+#   - BASE: 和 query 主题对齐的真实文档（任务 A 的产出,Brisbane）
+#   - BACKGROUND: 通用噪声,模拟真实世界 corpus 规模（MS MARCO 抽样）
+BASE_CORPUS_FILE = CORPUS_DIR / "brisbane_corpus.json"
+BACKGROUND_CORPUS_FILE = CORPUS_DIR / "msmarco_background.json"
 
-# 缓存的 FAISS 索引文件名
-FAISS_CACHE = CACHE_DIR / "static_index.faiss"
-EMBED_CACHE = CACHE_DIR / "static_embeddings.npy"
-DOCS_CACHE = CACHE_DIR / "static_documents.json"
+# 缓存的 FAISS 索引文件名（combined = BASE + BACKGROUND 合并后的索引）
+FAISS_CACHE = CACHE_DIR / "static_index_combined.faiss"
+EMBED_CACHE = CACHE_DIR / "static_embeddings_combined.npy"
+DOCS_CACHE = CACHE_DIR / "static_documents_combined.json"
 
 # ============================================================
 # 模型配置
