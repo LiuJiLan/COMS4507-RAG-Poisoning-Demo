@@ -148,6 +148,12 @@ Temporary Items
 
 .venv
 
+.env
+
+# 可由代码重新生成的产物,无需进 git
+__pycache__/
+data/cache/
+
 CLAUDE.md
 .claude/*
 notes/*

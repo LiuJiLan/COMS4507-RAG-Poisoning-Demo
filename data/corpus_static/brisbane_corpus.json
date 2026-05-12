@@ -1,0 +1,82 @@
+[
+  {
+    "doc_id": "brisbane_001",
+    "title": "Spicy Sichuan Restaurant",
+    "content": "Spicy Sichuan is a popular Chinese restaurant located in Sunnybank, Brisbane. Known for authentic Sichuan cuisine including mapo tofu, twice-cooked pork, and signature spicy hot pot. Open from 11am to 10pm daily. Reservations recommended on weekends.",
+    "source": "tripadvisor",
+    "topic": "restaurant",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_002",
+    "title": "Wonton Mein Noodle House",
+    "content": "Wonton Mein offers Cantonese-style noodles and dim sum in Fortitude Valley. Their roast duck and pork wonton soup are local favorites. Casual dining atmosphere, average wait time 15 minutes during peak hours.",
+    "source": "tripadvisor",
+    "topic": "restaurant",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_003",
+    "title": "Beijing House",
+    "content": "Beijing House is a mid-range Chinese restaurant in Brisbane CBD serving northern Chinese cuisine. Specialties include Peking duck, hand-pulled noodles, and jiaozi dumplings. Popular for business lunches.",
+    "source": "tripadvisor",
+    "topic": "restaurant",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_004",
+    "title": "Hong Bao Dim Sum",
+    "content": "Hong Bao serves traditional yum cha and dim sum in West End. Open for breakfast and lunch only. Cash preferred. Known for their har gow, siu mai, and char siu bao.",
+    "source": "tripadvisor",
+    "topic": "restaurant",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_005",
+    "title": "Jade Garden Restaurant",
+    "content": "Jade Garden is a long-established Chinese restaurant in Brisbane's Chinatown. Family-run for over 25 years, specializing in Cantonese and seafood dishes. Popular for large group dining and celebrations.",
+    "source": "tripadvisor",
+    "topic": "restaurant",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_006",
+    "title": "South Bank Parklands",
+    "content": "South Bank Parklands is a 17.5-hectare riverside park in Brisbane. Features include the Streets Beach (Australia's only inner-city beach), Wheel of Brisbane, walking paths, restaurants, and cultural venues. Free entry, open 24 hours.",
+    "source": "wikipedia",
+    "topic": "tourism",
+    "url": "https://en.wikipedia.org/wiki/South_Bank_Parklands"
+  },
+  {
+    "doc_id": "brisbane_007",
+    "title": "University of Queensland St Lucia Campus",
+    "content": "The University of Queensland's main St Lucia campus was established in 1909 and is located on a 114-hectare site beside the Brisbane River. Notable features include the Great Court (a sandstone quadrangle), the UQ Lakes, and historic buildings dating to the 1930s and 1940s.",
+    "source": "wikipedia",
+    "topic": "university",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_008",
+    "title": "Brisbane Airport Distance from CBD",
+    "content": "Brisbane Airport (BNE) is located approximately 14 kilometres northeast of Brisbane's CBD. Travel time by car is around 20 minutes outside peak hours, or 25 minutes by Airtrain. The airport handles both domestic and international flights.",
+    "source": "wikipedia",
+    "topic": "transport",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_009",
+    "title": "Queen Street Mall",
+    "content": "Queen Street Mall is Brisbane's premier pedestrian shopping precinct in the CBD. Stretches from George Street to Edward Street, featuring over 700 retailers, restaurants, and entertainment venues. Open daily 7am to late.",
+    "source": "wikipedia",
+    "topic": "tourism",
+    "url": ""
+  },
+  {
+    "doc_id": "brisbane_010",
+    "title": "Story Bridge",
+    "content": "Story Bridge is a steel cantilever bridge spanning the Brisbane River, connecting Fortitude Valley to Kangaroo Point. Opened in 1940, it carries the Bradfield Highway and is one of only three bridges in the world to offer guided climbs to its summit.",
+    "source": "wikipedia",
+    "topic": "tourism",
+    "url": ""
+  }
+]
