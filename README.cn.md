@@ -92,12 +92,12 @@ flowchart TB
 flowchart TB
     %% ===== 待交付任务（虚线框，标 owner） =====
     TA["任务A · 队友<br/>300 篇 Brisbane 语料"]:::task
-    TC["任务C · 队友<br/>30 query · v2 已交付<br/>v3 修订中"]:::partial
+    TC["任务C · 队友<br/>30 query v3 已交付<br/>data/test_queries.yaml"]:::ready
     TL["负责人本人<br/>Attack types + poison 模板"]:::task
     TB["任务B · 队友<br/>Related Work survey"]:::task
 
     %% ===== RAG 输入（部分就绪） =====
-    Q([User Query · v2 可用]):::partial
+    Q([User Query · 30 条就绪]):::ready
     BG[("背景集合<br/>MS MARCO 5000<br/>已就绪")]:::ready
     BASE[("基准集合<br/>Brisbane ~300")]:::wait
     PX[(污染集 P_x)]:::wait
@@ -141,7 +141,7 @@ flowchart TB
 **仍需交付**（按阻塞链优先级）：
 
 - 🟨 **任务A** — 300 篇 Brisbane 真实语料（**队友**）→ 接入基准集合 → 解锁真实实验
-- 🟢 **任务C** — 30 个真实 query（**队友**）→ v2 已交付,v3 修订中（删 4 / 改 2 / 增 4 多样化攻击意图）→ 修订完即可解锁
+- 🟩 **任务C** — 30 query 已交付(v3,GPT 协助修订)→ `data/test_queries.yaml`,5 类 category 均衡,attack_intent 全部含具体 false claim
 - 🟨 **Attack types + poison 模板设计**（**负责人本人**，**不等队友、可立即开始**）→ 接入 P_x → 解锁真实实验
 - 🟨 **任务B** — Related Work survey（**队友**）→ 不阻塞实验，但阻塞 Report 写作
 
