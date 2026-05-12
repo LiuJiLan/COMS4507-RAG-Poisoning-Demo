@@ -170,6 +170,17 @@ if page == "Dashboard":
             index=0,
             help="Which LLM does the listwise reranking. 'stub' skips the API call and preserves dense retriever order (useful for debugging without spending quota).",
         )
+        use_generator = st.checkbox(
+            "Include generator",
+            value=False,
+            key="include_generator",
+            help=(
+                f"Run the LLM generator on top-k₂ docs to produce a natural-language "
+                f"answer (clean vs poisoned, shown as Stage 3). Adds 2 LLM calls per "
+                f"run (~$0.02 with {config.GENERATOR_LLM})."
+            ),
+        )
+        st.caption("+2 calls, ~$0.02")
 
     run_button = st.button("Run experiment", type="primary", use_container_width=False)
 
@@ -182,11 +193,21 @@ if page == "Dashboard":
         else:
             pipeline.reranker.llm = make_client(config.AVAILABLE_LLMS[selected_reranker])
 
-        with st.spinner(f"Running retrieval comparison (reranker: {selected_reranker})..."):
+        # Swap generator client only when the user opts in. When the toggle is OFF
+        # we leave the cached pipeline's generator alone (run_experiment skips it).
+        if use_generator:
+            pipeline.generator.llm = make_client(config.AVAILABLE_LLMS[config.GENERATOR_LLM])
+
+        spin_msg = f"Running retrieval comparison (reranker: {selected_reranker}"
+        if use_generator:
+            spin_msg += f", generator: {config.GENERATOR_LLM}"
+        spin_msg += ")..."
+
+        with st.spinner(spin_msg):
             result = pipeline.run_experiment(
                 query=query,
                 poison_docs=selected_poison,
-                include_generator=False,  # generator stays stub for now (cost guard)
+                include_generator=use_generator,
             )
 
         # ----- Display: k_1 stage (dense retriever) -----
@@ -263,6 +284,20 @@ if page == "Dashboard":
         c2.metric("Best poison rank",
                   m2.poison_rank if m2.poison_rank is not None else "—")
         c3.metric("Docs displaced", len(m2.displaced_docs))
+
+        # ----- Display: Stage 3 (LLM generator answer) -----
+        if use_generator:
+            st.markdown("---")
+            st.markdown("## Stage 3: Generated answer")
+            _gen_model = config.AVAILABLE_LLMS[config.GENERATOR_LLM]["model"]
+            st.caption(f"Generator: `{_gen_model}` via OpenRouter")
+            col_clean3, col_poison3 = st.columns(2)
+            with col_clean3:
+                st.markdown("#### Without poison")
+                st.markdown(result.answer_clean or "_(empty)_")
+            with col_poison3:
+                st.markdown("#### With poison")
+                st.markdown(result.answer_poisoned or "_(empty)_")
 
     elif run_button:
         st.error("No poison set selected.")
