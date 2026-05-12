@@ -1,0 +1,6 @@
+# 默认所有文件归仓库负责人审核
+* @LiuJiLan
+
+# Report 章节素材,不要求仓库负责人审核
+# 可以由自己 commit / 互相 review
+report/
