@@ -45,35 +45,33 @@ TOP_K_1 = 10   # dense retriever 返回多少个 (k_1)
 TOP_K_2 = 5    # LLM reranker 返回多少个 (k_2)
 
 # ============================================================
-# LLM 配置（明天再实际使用）
+# LLM 配置（全部通过 OpenRouter 路由）
 # ============================================================
-# 从环境变量读 API key（避免提交到 git）
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+# 旧设计是 4 家直接接各自 SDK(anthropic / openai / google-generativeai / requests),
+# 现在统一走 OpenRouter:1 个 key, 1 笔账单, 1 个 client class。
+# Model 命名遵循 OpenRouter 的 "provider/model" 格式。
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
-# 可用的 LLM 列表（reranker 用）
 AVAILABLE_LLMS = {
     "claude": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-20250514",
-        "enabled": False,  # 明天接 API 时改 True
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "enabled": True,
     },
     "gpt4o": {
-        "provider": "openai",
-        "model": "gpt-4o-mini",
-        "enabled": False,
+        "provider": "openrouter",
+        "model": "openai/gpt-4o-mini",
+        "enabled": True,
     },
     "gemini": {
-        "provider": "google",
-        "model": "gemini-2.0-flash-exp",
-        "enabled": False,
+        "provider": "openrouter",
+        "model": "google/gemini-2.0-flash-001",
+        "enabled": True,
     },
     "llama": {
         "provider": "openrouter",
         "model": "meta-llama/llama-3.3-70b-instruct",
-        "enabled": False,
+        "enabled": True,
     },
 }
 

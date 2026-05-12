@@ -1,8 +1,8 @@
 """
-快速 CLI 实验脚本 —— 不走 GUI，直接看 ranking 结果。
+快速 CLI 实验脚本 —— 不走 GUI,直接看 ranking 结果。
 
-开发期主要在这里跑：
-- 改下面 QUERY / POISON_SET 变量
+开发期主要在这里跑:
+- 改下面 QUERY / POISON_SET / RERANKER_LLM 变量
 - PyCharm 绿三角运行
 - 终端立刻看到 clean vs poisoned 的两阶段排名 + 攻击指标
 
@@ -13,7 +13,7 @@ import sys
 import warnings
 from pathlib import Path
 
-# === 噪音抑制（必须在 HF / transformers / sentence-transformers 加载前）===
+# === 噪音抑制(必须在 HF / transformers / sentence-transformers 加载前)===
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
@@ -42,14 +42,17 @@ import config
 from src.corpus import load_corpus, load_poison_set
 from src.pipeline import RAGPipeline
 from src.evaluator import format_ranking_table
+from src.llm_clients import make_client
 
 
 # ======================================================================
 # 改这里跑不同实验
 # ======================================================================
 QUERY = "best Chinese restaurant in Brisbane"
-POISON_SET = "P_demo"      # 对应 data/poison_sets/<这里>.json
-INCLUDE_GENERATOR = False  # stub 阶段开了也只是占位输出
+POISON_SET = "P_demo"        # 对应 data/poison_sets/<这里>.json
+RERANKER_LLM = "claude"      # config.AVAILABLE_LLMS 的 key: claude / gpt4o / gemini / llama
+USE_STUB_RERANKER = False    # True 跳过真 LLM,reranker 走 stub(不消耗 API quota)
+INCLUDE_GENERATOR = False    # True 跑 generator(会再调一次 LLM 生成自然语言答案)
 # ======================================================================
 
 
@@ -60,12 +63,25 @@ def _section(title: str) -> None:
 
 
 def main() -> None:
+    # ---- 构建 LLM clients ----
+    reranker_client = make_client(
+        config.AVAILABLE_LLMS[RERANKER_LLM],
+        use_stub=USE_STUB_RERANKER,
+    )
+    # generator 不调用时用 stub,省 quota
+    generator_client = make_client(
+        config.AVAILABLE_LLMS[config.GENERATOR_LLM],
+        use_stub=not INCLUDE_GENERATOR,
+    )
+
     # ---- 构建 / 加载 pipeline ----
     pipeline = RAGPipeline(
         embedding_model=config.EMBEDDING_MODEL,
         embedding_device=config.EMBEDDING_DEVICE,
         top_k_1=config.TOP_K_1,
         top_k_2=config.TOP_K_2,
+        reranker_client=reranker_client,
+        generator_client=generator_client,
     )
 
     if config.FAISS_CACHE.exists() and config.DOCS_CACHE.exists():
@@ -84,11 +100,14 @@ def main() -> None:
     poison_docs = load_poison_set(poison_path)
 
     # ---- Header ----
+    gen_suffix = "" if INCLUDE_GENERATOR else " (skipped)"
     print()
     print("=" * 72)
     print(f"Query:        {QUERY}")
     print(f"Poison set:   {POISON_SET}  ({len(poison_docs)} doc{'s' if len(poison_docs) != 1 else ''})")
     print(f"Clean corpus: {pipeline.retriever.n_clean} docs")
+    print(f"Reranker:     {reranker_client!r}")
+    print(f"Generator:    {generator_client!r}{gen_suffix}")
     print("=" * 72)
 
     # ---- 跑实验 ----

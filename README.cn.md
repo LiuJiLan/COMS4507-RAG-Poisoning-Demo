@@ -73,3 +73,40 @@ flowchart TB
 - `score_gap` —— poison 分数与 clean top-1 分数的差距
 
 **LLM 输出是否被骗不是评估指标**，generator 阶段只是 demo 的展示糖衣。
+
+---
+
+## 当前编码进展
+
+> 仅供项目负责人速览状态，不是 pipeline 文档。颜色映射：🟩 已完成 / 🟨 进行中（代码就绪但还没端到端 exercise） / ⬜ 未开始
+
+```mermaid
+flowchart TB
+    Q([User Query]):::done
+    KB[(静态知识库 S)]:::done
+    PX[(污染集 P_x)]:::done
+
+    EMB["Embedding<br/><span style='font-size:0.85em'>sentence-transformers</span>"]:::done
+    FAISS["FAISS 向量检索"]:::done
+    K1["clean / poisoned<br/>top-k₁"]:::done
+    RER["LLM Reranker<br/><span style='font-size:0.85em'>4 models via OpenRouter</span>"]:::done
+    GEN["LLM Generator"]:::progress
+
+    K2[/"top-k₂ 排名对比"/]:::done
+    ANS[/"自然语言答案"/]:::progress
+
+    Q --> EMB
+    KB --> EMB
+    PX -. 运行时注入 .-> EMB
+    EMB --> FAISS --> K1 --> RER --> K2 --> GEN --> ANS
+
+    classDef done fill:#86efac,stroke:#15803d,color:#14532d,stroke-width:2px
+    classDef progress fill:#fde68a,stroke:#b45309,color:#78350f,stroke-width:2px
+    classDef todo fill:#ffffff,stroke:#9ca3af,color:#374151,stroke-width:1.5px,stroke-dasharray:5 3
+```
+
+**最近一次更新（2026-05-12）**
+
+- 🟩 **LLM Reranker**：4 家（Claude 4.5 Sonnet / GPT-4o-mini / Gemini 2.0 Flash / Llama 3.3 70B）全部通过 OpenRouter 接通验证。初步冒烟测试 4/4 都被 dummy `P_demo` 攻击成功（k2 poison 全部抢占前 3 位）。
+- 🟨 **LLM Generator**：代码就绪、client wiring 完成，但运行时入口默认 `include_generator=False` 守门，尚未真实 LLM 端到端运行。
+- 🟨 **自然语言答案外显**：`scripts/quickrun.py` CLI 已支持，`app.py` 还没加 Stage 3 渲染区。

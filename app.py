@@ -38,6 +38,7 @@ import json
 import config
 from src.corpus import load_corpus, load_poison_set
 from src.pipeline import RAGPipeline
+from src.llm_clients import make_client, StubLLMClient
 
 
 # ============================================================
@@ -138,7 +139,7 @@ if page == "Dashboard":
     )
 
     # ----- Inputs -----
-    col_input, col_attack = st.columns([3, 2])
+    col_input, col_attack, col_reranker = st.columns([3, 2, 2])
 
     with col_input:
         query = st.text_input(
@@ -160,15 +161,32 @@ if page == "Dashboard":
             )
             selected_poison = poison_options[poison_name]
 
+    with col_reranker:
+        enabled_llms = [k for k, v in config.AVAILABLE_LLMS.items() if v.get("enabled")]
+        rerank_options = enabled_llms + ["stub"]
+        selected_reranker = st.selectbox(
+            "Reranker model",
+            rerank_options,
+            index=0,
+            help="Which LLM does the listwise reranking. 'stub' skips the API call and preserves dense retriever order (useful for debugging without spending quota).",
+        )
+
     run_button = st.button("Run experiment", type="primary", use_container_width=False)
 
     # ----- Run pipeline -----
     if run_button and selected_poison:
-        with st.spinner("Running retrieval comparison..."):
+        # Swap in the chosen reranker client (cached pipeline keeps embedder /
+        # retriever / FAISS index, only the LLM client gets replaced per run).
+        if selected_reranker == "stub":
+            pipeline.reranker.llm = StubLLMClient()
+        else:
+            pipeline.reranker.llm = make_client(config.AVAILABLE_LLMS[selected_reranker])
+
+        with st.spinner(f"Running retrieval comparison (reranker: {selected_reranker})..."):
             result = pipeline.run_experiment(
                 query=query,
                 poison_docs=selected_poison,
-                include_generator=False,  # LLM generator is stub right now
+                include_generator=False,  # generator stays stub for now (cost guard)
             )
 
         # ----- Display: k_1 stage (dense retriever) -----
@@ -209,7 +227,11 @@ if page == "Dashboard":
 
         # ----- Display: k_2 stage (LLM reranker) -----
         st.markdown(f"## Stage 2: LLM reranker (top-{config.TOP_K_2})")
-        st.caption("⚠ Currently using STUB reranker. Real LLM will be integrated tomorrow.")
+        if selected_reranker == "stub":
+            st.caption("Reranker: **STUB** — no API call, order = dense retriever output")
+        else:
+            _model_name = config.AVAILABLE_LLMS[selected_reranker]["model"]
+            st.caption(f"Reranker: `{_model_name}` via OpenRouter")
 
         col_clean2, col_poison2 = st.columns(2)
         with col_clean2:
