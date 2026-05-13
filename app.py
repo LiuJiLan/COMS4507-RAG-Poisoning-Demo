@@ -1,12 +1,15 @@
 """
+Streamlit UI entry point.
 Streamlit UI 入口。
 
-启动：
+Launch:
     streamlit run app.py
 
-UI 结构：
-- 左侧：sidebar 导航 + 知识库信息
-- 右侧：query 输入 + 双栏对比（clean vs poisoned）+ 指标
+Layout:
+- Left:  sidebar navigation + knowledge-base info
+- Right: query input + side-by-side comparison (clean vs poisoned) + metrics
+
+UI 结构:左 sidebar 导航 + 知识库信息;右 query 输入 + clean vs poisoned 双栏对比 + 指标。
 """
 import os
 import sys
@@ -15,7 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-# === 噪音抑制（必须在 HF / transformers 加载前）===
+# === Noise suppression — must precede HF / transformers imports ===
+# === 噪音抑制(必须在 HF / transformers 加载前) ===
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
@@ -23,11 +27,13 @@ warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# 抑制 transformers v5 lazy-load 的噪音 warning（image_processing_yolos / zoedepth 等）
+# Silence transformers v5 lazy-load warnings (image_processing_yolos / zoedepth etc.).
+# 抑制 transformers v5 lazy-load 的噪音 warning(image_processing_yolos / zoedepth 等)。
 from transformers.utils import logging as hf_logging
 hf_logging.set_verbosity_error()
 
-# 抑制 huggingface_hub 的 HF_TOKEN unauthenticated 警告（走自己的 logger,不是 Python warnings）
+# Silence huggingface_hub's HF_TOKEN unauthenticated warning (its own logger, not Python warnings).
+# 抑制 huggingface_hub 的 HF_TOKEN unauthenticated 警告(走自己的 logger,不是 Python warnings)。
 from huggingface_hub.utils import logging as hub_logging
 hub_logging.set_verbosity_error()
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
@@ -52,13 +58,15 @@ st.set_page_config(
 
 
 # ============================================================
-# Resource caching: pipeline is loaded once and reused
+# Resource caching: pipeline is loaded once and reused.
+# 资源缓存:pipeline 只加载一次,session 内复用。
 # ============================================================
 @st.cache_resource(show_spinner="Loading RAG pipeline...")
 def get_pipeline():
     """
-    Build (or load cached) RAG pipeline.
-    Streamlit caches this across reruns, so it only runs once per session.
+    Build (or load cached) RAG pipeline. Streamlit caches this across reruns,
+    so it only runs once per session.
+    构造或从 cache 加载 RAG pipeline。Streamlit 跨 rerun 缓存,session 内只跑一次。
     """
     pipeline = RAGPipeline(
         embedding_model=config.EMBEDDING_MODEL,
@@ -67,7 +75,8 @@ def get_pipeline():
         top_k_2=config.TOP_K_2,
     )
 
-    # Try to load cached index first
+    # Try cached index first.
+    # 先尝试加载缓存索引。
     if config.FAISS_CACHE.exists() and config.DOCS_CACHE.exists():
         try:
             pipeline.load_cached_index(config.FAISS_CACHE, config.DOCS_CACHE)
@@ -75,7 +84,8 @@ def get_pipeline():
         except Exception as e:
             st.warning(f"Cache load failed ({e}), rebuilding...")
 
-    # Build from scratch (combine BASE + BACKGROUND, ADJ-001)
+    # Build from scratch (BASE + BACKGROUND combined; ADJ-001).
+    # 从零构建(BASE + BACKGROUND 合并,ADJ-001)。
     for f in (config.BASE_CORPUS_FILE, config.BACKGROUND_CORPUS_FILE):
         if not f.exists():
             st.error(f"Corpus file not found: {f}")
@@ -85,7 +95,8 @@ def get_pipeline():
     background_docs = load_corpus(config.BACKGROUND_CORPUS_FILE)
     pipeline.initialize(base_docs + background_docs)
 
-    # Save cache for next time
+    # Save cache for next time.
+    # 写一份 cache 供下次启动用。
     try:
         pipeline.retriever.save(config.FAISS_CACHE, config.DOCS_CACHE)
     except Exception as e:
@@ -95,7 +106,11 @@ def get_pipeline():
 
 
 def _source_tag(doc) -> str:
-    """ADJ-001: 给 top-k 列表里的文档贴一个来源 tag。poison 文档用 ☣,这里返回 "" 让 marker 处理。"""
+    """
+    Tag a doc with its corpus origin in the top-k list (ADJ-001).
+    Poison docs return empty so the ☣ marker handles them.
+    给 top-k 列表里的文档贴来源 tag(ADJ-001);poison 文档返回空,让 ☣ marker 处理。
+    """
     if doc.is_poison:
         return ""
     return " `BG`" if doc.source == "msmarco" else " `BASE`"
@@ -103,7 +118,10 @@ def _source_tag(doc) -> str:
 
 @st.cache_data
 def load_poison_options() -> dict:
-    """Load all available poison sets, return {filename: [Document, ...]}"""
+    """
+    Load all available poison sets. Returns {filename_stem: [Document, ...]}.
+    加载所有可用 poison 集合,返回 {文件名: [Document, ...]}。
+    """
     options = {}
     if config.POISON_DIR.exists():
         for p in sorted(config.POISON_DIR.glob("*.json")):
@@ -201,7 +219,9 @@ if page == "Dashboard":
     # ----- Run pipeline -----
     if run_button and selected_poison:
         # Swap in the chosen reranker client (cached pipeline keeps embedder /
-        # retriever / FAISS index, only the LLM client gets replaced per run).
+        # retriever / FAISS index; only the LLM client is replaced per run).
+        # 替换选定的 reranker client(cache 的 pipeline 保留 embedder / retriever / FAISS,
+        # 每次只换 LLM client)。
         if selected_reranker == "stub":
             pipeline.reranker.llm = StubLLMClient()
         else:
@@ -209,6 +229,7 @@ if page == "Dashboard":
 
         # Swap generator client only when the user opts in. When the toggle is OFF
         # we leave the cached pipeline's generator alone (run_experiment skips it).
+        # 只在用户勾选 generator 时替换;不勾选时保留缓存中的 generator,run_experiment 跳过它。
         if use_generator:
             pipeline.generator.llm = make_client(config.AVAILABLE_LLMS[config.GENERATOR_LLM])
 

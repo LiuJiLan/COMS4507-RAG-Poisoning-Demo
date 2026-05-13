@@ -1,12 +1,18 @@
 """
+Environment health check script.
 环境健康检查脚本。
+
+Verifies Python / NumPy / PyTorch+CUDA / FAISS / Streamlit / PyYAML / python-dotenv
+one by one, then runs an end-to-end sentence-transformers + FAISS smoke test.
 
 逐项检查 Python / NumPy / PyTorch+CUDA / FAISS / Streamlit / PyYAML / python-dotenv,
 最后做一次 sentence-transformers + FAISS 的 end-to-end smoke test。
 
-每一项独立 try/except,前面失败不影响后面继续。最后给汇总和建议的 pip install 命令。
+Each check is independently try/except'd, so an earlier failure does not block
+later ones. A summary + suggested pip install commands are printed at the end.
+每项独立 try/except,前面失败不影响后面继续;末尾给汇总和建议的 pip install 命令。
 
-用法:
+Usage:
     python test.py
 """
 from __future__ import annotations
@@ -18,6 +24,7 @@ import traceback
 from typing import Callable
 
 # ----------------------------------------------------------------------
+# Framework
 # 框架
 # ----------------------------------------------------------------------
 OK = "[ OK ]"
@@ -28,7 +35,10 @@ results: list[tuple[str, str, str]] = []  # (status, name, detail)
 
 
 def check(name: str, fn: Callable[[], str]) -> None:
-    """跑一个检查,捕获异常,记录结果。fn 返回一行/多行 info string。"""
+    """
+    Run one check, capture exceptions, record the outcome. fn returns one or more info lines.
+    跑一个检查,捕获异常并记录结果;fn 返回一行或多行 info string。
+    """
     print(f"\n--- {name} ---")
     t0 = time.time()
     try:
@@ -47,6 +57,7 @@ def check(name: str, fn: Callable[[], str]) -> None:
 
 
 # ----------------------------------------------------------------------
+# Individual checks
 # 各项检查
 # ----------------------------------------------------------------------
 def check_python() -> str:
@@ -73,7 +84,8 @@ def check_torch_cuda() -> str:
         name = torch.cuda.get_device_name(0)
         lines.append(f"CUDA available: torch.version.cuda={torch.version.cuda}")
         lines.append(f"device 0: {name} (total {n} GPU)")
-        # GPU 实际操作 sanity:1k x 1k matmul
+        # GPU sanity check: 1k × 1k matmul.
+        # GPU 实际操作 sanity:1k × 1k matmul。
         x = torch.randn(1024, 1024, device="cuda")
         y = x @ x.T
         torch.cuda.synchronize()
@@ -101,7 +113,8 @@ def check_faiss() -> str:
 
 
 def check_streamlit() -> str:
-    # 只 import,不启动服务
+    # Import-only check; do not start the server.
+    # 只 import,不启动服务。
     import streamlit
     return f"streamlit {streamlit.__version__} (import-only check; UI not started)"
 
@@ -119,7 +132,10 @@ def check_dotenv() -> str:
 
 
 def check_sentence_transformers() -> str:
-    """加载 all-MiniLM-L6-v2 模型并 embed 几句话。首次会从 HuggingFace 下载 ~80 MB。"""
+    """
+    Load all-MiniLM-L6-v2 and embed a couple of sentences. First run downloads ~80 MB.
+    加载 all-MiniLM-L6-v2 并 embed 几句话;首次会从 HuggingFace 下载 ~80 MB。
+    """
     import torch
     from sentence_transformers import SentenceTransformer
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -133,14 +149,20 @@ def check_sentence_transformers() -> str:
 
 
 def check_datasets() -> str:
-    """ADJ-001:HuggingFace `datasets` 库,用于拉 MS MARCO 背景集合。仅 import 检查,不下载数据。"""
+    """
+    HuggingFace `datasets` library — used to pull MS MARCO (ADJ-001). Import-only, no download.
+    HuggingFace `datasets` 库,用于拉 MS MARCO 背景集合(ADJ-001);仅 import 检查,不下载数据。
+    """
     import datasets
-    from datasets import load_dataset  # noqa: F401  仅做 import 验证
+    from datasets import load_dataset  # noqa: F401  import-only verification
     return f"datasets {datasets.__version__}, load_dataset import OK"
 
 
 def check_end_to_end() -> str:
-    """组合 sentence-transformers + FAISS 模拟一次真实 retrieval,看 top-1 是否合理。"""
+    """
+    Combine sentence-transformers + FAISS to simulate a real retrieval; verify top-1 is sensible.
+    组合 sentence-transformers + FAISS 模拟一次真实 retrieval,验证 top-1 是否合理。
+    """
     import torch
     import numpy as np
     import faiss
@@ -180,6 +202,7 @@ def check_end_to_end() -> str:
 
 
 # ----------------------------------------------------------------------
+# Main flow
 # 主流程
 # ----------------------------------------------------------------------
 def main() -> int:
@@ -187,8 +210,10 @@ def main() -> int:
     print("RAG Poisoning Demo -- environment check")
     print("=" * 64)
 
-    # 顺序:从轻到重。任何一项失败都不阻塞后续,但 sentence-transformers
-    # 失败时 end-to-end 一定也会失败,这是预期。
+    # Order: light to heavy. Any failure is non-blocking for later items, but a
+    # sentence-transformers failure will also fail end-to-end (expected).
+    # 顺序:从轻到重。任何一项失败都不阻塞后续;但 sentence-transformers 失败时
+    # end-to-end 也一定失败,这是预期。
     check("Python version (>=3.10)", check_python)
     check("NumPy", check_numpy)
     check("PyTorch + CUDA", check_torch_cuda)
@@ -201,6 +226,7 @@ def main() -> int:
     check("End-to-end smoke test (embedder + FAISS)", check_end_to_end)
 
     # ------------------------------------------------------------------
+    # Summary
     # 汇总
     # ------------------------------------------------------------------
     print("\n" + "=" * 64)
@@ -217,7 +243,8 @@ def main() -> int:
         print("\nAll checks passed. Environment is ready.")
         return 0
 
-    # 失败的话给点提示
+    # Hints for failed items.
+    # 失败项的提示。
     print("\nFailed items above. Hints:")
     failed_names = {name for status, name, _ in results if status == FAIL}
     if any("PyTorch" in n for n in failed_names):
