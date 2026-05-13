@@ -52,6 +52,14 @@ hub_logging.set_verbosity_error()
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
 
+def fmt_dur(seconds: float) -> str:
+    """Format duration as MM:SS or H:MM:SS."""
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
+
+
 def attach_errors_log(out_path: Path) -> Path:
     """Add a WARNING+ FileHandler to the root logger, writing to expr_<ts>.errors.log.
 
@@ -323,7 +331,9 @@ def main() -> None:
             marker = f"ERROR ({row['error'][:40]})"
         else:
             marker = f"k2={row['k2_attack_success']}"
-        print(f"  → {marker:<25} ({row['elapsed_sec']}s)")
+        elapsed_total = time.time() - t_start
+        eta = (elapsed_total / i) * (total - i)
+        print(f"  → {marker:<25} ({row['elapsed_sec']}s)  [t={fmt_dur(elapsed_total)} eta={fmt_dur(eta)}]")
     total_elapsed = time.time() - t_start
 
     # ---- CSV ----
