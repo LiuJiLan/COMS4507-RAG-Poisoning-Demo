@@ -183,10 +183,14 @@ The telemetry columns `reranker_padded_clean` and `reranker_padded_poisoned` sho
 |---|---:|---:|---|
 | `claude-sonnet-4.5` | 1 | 0.7% | One rare padded 7 case |
 | `gemini-2.5-flash-lite` | 3 | 2.0% | LLM under-output; all padded 5; no API failures |
-| `llama-3.3-70b` | 7 | 4.7% | Occasional padded 1; extreme case padded 9 |
-| `gpt-4o-mini` | **27** | **18%** | All LLM under-output, commonly padded 1, 5, or 6 |
+| `llama-3.3-70b` | 4 | 2.7% | Occasional padded 1; one padded 9 case |
+| `gpt-4o-mini` | **20** | **13.3%** | All LLM under-output; padded 5 most common (8 rows), then padded 1 (5 rows) |
 
-GPT-4o-mini shows a stable under-output pattern: when asked to perform listwise reranking over 10 items, it often outputs only the top 1–6 results, and the remaining items are filled in by the parser using their original order. Claude almost never has this issue. After switching Gemini to `2.5-flash-lite`, API failures dropped to 0.
+Definition: a row is counted as anomalous when either `reranker_padded_clean` or `reranker_padded_poisoned` is greater than 0.
+
+GPT-4o-mini shows a stable under-output pattern: when asked to perform listwise reranking over 10 items, it often outputs only the top 1–9 results, and the remaining items are filled in by the parser using their original order. Claude almost never has this issue. After switching Gemini to `2.5-flash-lite`, API failures dropped to 0.
+
+It is worth emphasizing that our reported metric only looks at top-5 (`TOP_K_2 = 5`). The top-5 is only contaminated by parser dense-fill when the LLM emits **fewer than 5** ranks (i.e. `padded > 5`). In the final 600-row main experiment, only 3 rows (0.5%) meet this stricter criterion. See the Limitations section for the full sensitivity analysis.
 
 ### 5. Gemini does not simply pass through the dense retriever order
 
@@ -272,6 +276,6 @@ The output includes the Git hash and a config snapshot for later traceability.
 
 - **Limited corpus scale**: the base corpus contains only 290 Brisbane documents and 5000 MS MARCO noise documents, which is much smaller than a real-world RAG system. Further validation is needed before generalizing the findings to corpora at the 10k+ scale.
 - **Single fixed generator**: to avoid a reranker × generator combinatorial explosion, the generator is fixed to Claude. Therefore, generator-stage attack behavior is outside the scope of this study.
-- **The 4 reranker LLMs are not perfectly equivalent baselines**: `gpt-4o-mini` only outputs the first few items in 18% of rows when reranking 10 items listwise, with the remaining items filled in by the parser. Strictly speaking, it is not fully comparable to the other LLMs on a row-by-row basis. The `reranker_padded_*` columns in the CSV can be used to remove affected rows for stricter analysis.
+- **The 4 reranker LLMs are not perfectly equivalent baselines**: `gpt-4o-mini` produces incomplete LLM output in 13.3% of rows, with the remaining items filled in by the parser in dense order. However, because our reported metric only looks at top-5 (`TOP_K_2 = 5`), the top-5 is only contaminated when the LLM emits **fewer than 5** ranks (`padded > 5`). In the final 600-row main experiment, only 3 rows (0.5%) meet this stricter criterion. Sensitivity analysis: after removing these 3 rows, the ASR delta across every attack × LLM combination is ≤ 0.6 pp, and the three main findings — F1 (Authority Spoof universal at 97%), F2 (Contradiction 13 pp LLM gap), F3 (Keyword Stuffing the only attack visibly weakened by reranking) — are identical to the full 600-row results. The `reranker_padded_*` columns in the CSV expose this signal so the analysis can be reproduced.
 - **OpenRouter capacity can fluctuate**: the third-party LLM gateway may occasionally return 429 or 504 errors. The main experiment uses exponential backoff and retry-with-backoff to reduce this issue, but in extreme cases the system may still fall back to the dense retriever order. The CSV schema exposes this signal so that affected rows can be removed in post-hoc analysis.
 - **Research demo scope**: this project is not a production-grade RAG system. It does not implement authentication, persistence, chunking, user-uploaded corpora, or other production engineering features.
