@@ -93,14 +93,14 @@ flowchart TB
     %% ===== 待交付任务（虚线框，标 owner） =====
     TA["任务A · 队友<br/>290 篇 Brisbane 语料<br/>已交付"]:::ready
     TC["任务C · 队友<br/>30 query v3 已交付<br/>data/test_queries.yaml"]:::ready
-    TL["负责人本人<br/>Poison code 骨架 ready<br/>(等 task A v2 + pilot)"]:::partial
+    TL["负责人本人<br/>5 种 attack × 129 条 poison<br/>已生成入库"]:::ready
     TB["任务B · 队友<br/>Related Work survey"]:::task
 
     %% ===== RAG 输入（部分就绪） =====
     Q([User Query · 30 条就绪]):::ready
     BG[("背景集合<br/>MS MARCO 5000<br/>已就绪")]:::ready
     BASE[("基准集合<br/>Brisbane 290<br/>已就绪")]:::ready
-    PX[(污染集 P_x)]:::wait
+    PX[(污染集 P_x · 5 套就绪)]:::ready
 
     %% ===== Pipeline 代码（已就绪） =====
     EMB["Embedding"]:::ready
@@ -142,7 +142,7 @@ flowchart TB
 
 - 🟩 **任务A** — 290 篇 Brisbane 真实语料已交付,入库 `data/corpus_static/brisbane_corpus.json`(5 类 topic 对齐 query category)
 - 🟩 **任务C** — 30 query 已交付(v3,GPT 协助修订)→ `data/test_queries.yaml`,5 类 category 均衡,attack_intent 全部含具体 false claim
-- 🟨 **Poison 集生成**（**负责人本人**，代码骨架 Step 1-6 已完成,**Step 7 pilot 待 task A v2 + 真实 LLM 跑** ≈ $0.10）→ 接入 P_x → 解锁真实实验
+- 🟩 **Poison 集生成** — 5 种 attack 共 **129 条 poison** 已生成入库(`data/poison_sets/P_{keyword_stuffing,structured_format,semantic_mimicry,authority_spoof,contradiction}.json`)。生成成本 ~$0.51,validator 0 违规,"fictional/..." 字面词泄漏 0 命中。
 - 🟨 **任务B** — Related Work survey（**队友**）→ 不阻塞实验，但阻塞 Report 写作
 
 **已就绪**（图中绿色节点）：
@@ -151,7 +151,7 @@ flowchart TB
 - 🟩 静态库分两层(ADJ-001):背景集合 MS MARCO 5000 + **基准集合 Brisbane 290 都已就绪**(`data/corpus_static/{msmarco_background.json, brisbane_corpus.json}`)
 - 🟩 UI 完整(Stage 1 / Stage 2 排名对比 + Stage 3 自然语言答案对比,Generator opt-in toggle,来源 tag `BG`/`BASE`/☣,~$0.02/run with Claude)
 - 🟩 调试工具链(`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py` / `prepare_msmarco.py`)
-- 🟩 **ADJ-002 poison 生成代码骨架完整**(`src/poison/` 5 个 generator + `validate_poison()` + `src/budget.py` + `scripts/generate_poisons.py`)—— Step 1-6 实施完毕,5 个 sanity check 全过;等 task A v2 落地后跑 `--pilot 5` 验证真实输出
+- 🟩 **ADJ-002 poison 生成完整落地**(`src/poison/` 5 个 generator + `validate_poison()` + `src/budget.py` + `scripts/generate_poisons.py`)—— Step 1-7 + 全量生成全部完成,5 个 `P_*.json` 共 129 条入库,覆盖矩阵:keyword_stuffing 22 / structured_format 22 / semantic_mimicry 30 / authority_spoof 30 / contradiction 25
 
 ---
 

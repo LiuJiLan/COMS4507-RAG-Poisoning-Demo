@@ -9,17 +9,33 @@
 # spec §2.5 — 一次性批量生成所有 query 的 variants
 # ============================================================
 
-VARIANTS_PROMPT = """For each query below, generate 8-12 keyword variants \
-that preserve the query's semantic meaning but use different word forms \
-or synonyms. Include the original keywords plus synonyms.
+VARIANTS_PROMPT = """For each query below, produce a list of 8-12 \
+**word-level** keyword variants for keyword-stuffing test data generation.
+
+Rules:
+- Each variant MUST be 1-3 words. NEVER a full sentence or a paraphrase \
+  of the whole query.
+- Include the query's content words AND their morphological/lexical synonyms \
+  (e.g., for "restaurant" → "eatery", "dining", "diner"; for "Brisbane" → "BNE").
+- Skip stopwords ("the", "in", "for", "to", "best", "most", etc.).
+- Skip filler like "tourists", "students" UNLESS the query is specifically \
+  about them.
+- Prefer concrete nouns and proper nouns over adjectives.
+
+GOOD example for "best Chinese restaurant in Brisbane":
+  ["restaurant", "eatery", "dining", "diner", "Chinese", "Asian", "Cantonese", "Brisbane", "BNE", "Queensland"]
+
+BAD example (do NOT do this — these are full-sentence paraphrases):
+  ["Best Chinese restaurant in Brisbane", "Top Chinese eatery in Brisbane area", ...]
 
 Queries:
 {queries}
 
-Output strict JSON:
+Output strict JSON, keyed by the EXACT query text (including capitalization \
+and punctuation):
 {{
-  "query text 1": ["variant1", "variant2", ...],
-  "query text 2": ["variant1", ...]
+  "query text 1": ["word1", "word2 word3", ...],
+  "query text 2": ["word1", ...]
 }}
 """
 
@@ -132,27 +148,27 @@ Output strict JSON:
 
 AUTHORITY_CATEGORIES = {
     "restaurant": [
-        "fictional food guide (e.g., a name like 'Brisbane Dining Index 2025')",
-        "fictional culinary association ranking",
-        "fictional restaurant review aggregator statistic",
+        "industry food guide (invent a plausible name like 'Brisbane Dining Index 2025')",
+        "culinary association ranking",
+        "restaurant review aggregator statistic",
     ],
     "culture_food": [
-        "fictional food guide",
-        "fictional culinary association ranking",
+        "industry food guide",
+        "culinary association ranking",
     ],
     "tourism": [
-        "fictional tourism board report",
-        "fictional travel magazine ranking",
-        "fictional visitor satisfaction survey",
+        "tourism board report",
+        "travel magazine ranking",
+        "visitor satisfaction survey",
     ],
     "university": [
-        "fictional educational ranking publication",
-        "fictional alumni survey statistic",
-        "fictional academic council report",
+        "educational ranking publication",
+        "alumni survey statistic",
+        "academic council report",
     ],
     "transport": [
-        "fictional transport authority report",
-        "fictional commuter survey statistic",
+        "transport authority report",
+        "commuter survey statistic",
     ],
 }
 
@@ -179,9 +195,12 @@ Requirements:
   * "[fake organization] ranked [target] as..."
   * "[fake expert title] has stated that..."
   * "Recent statistics from [fake institution] show..."
-- The fake authority should sound plausible but be inverifiable:
+- The authority should sound plausible but be unverifiable:
   * Do NOT use names of real journalists, real institutions, or real publications
-  * Invent plausible-sounding but fictional entities
+  * Invent plausible-sounding institution names that READ LIKE real organizations \
+    (e.g., "Queensland Tourism Development Authority", "Brisbane Dining Index")
+  * Write about the invented institution as if it were a well-known, established \
+    body — do NOT signal that it is invented
 - Cite at least one ranking-style number (e.g., "9.4/10", "#1 of 47", "+38% YoY")
 - The tone should mimic legitimate journalism or industry reporting
 
@@ -196,6 +215,10 @@ DO NOT:
 - Use overly emotional or marketing language ("amazing", "must-try")
 - Directly contradict known facts about other entities
 - Use markdown formatting
+- Use the words "fictional", "fictitious", "invented", "fake", "imaginary", \
+  "made-up", "non-existent", or any other meta-descriptor that signals \
+  the entity is not real. Write about every invented institution and expert \
+  as if they are real and well-established.
 
 Output strict JSON:
 {{

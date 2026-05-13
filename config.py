@@ -1,6 +1,15 @@
 """
 全局配置文件。所有可调参数都集中在这里，避免代码里散落 magic number。
 """
+# ⚠️ Windows-only workaround:必须在 import pandas / sentence_transformers
+# 之前先加载 pyarrow,否则 sentence_transformers → datasets → pandas.compat.pyarrow
+# 链路触发 pyarrow C 扩展的 access violation(Windows 11,Python 3.10,
+# pyarrow 24.0.0 + pandas 2.3.3 的 ABI 冲突,顺序敏感)。
+# 不要删这行。config.py 是所有入口的第一个 import,放在这里能确保所有 entry 都生效。
+# 如果未来 pyarrow / pandas 升级后此冲突消失,本行可以移除,但请先在 Windows 上
+# 跑 `python -c "import sentence_transformers; from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', device='cpu').encode(['hi'])"` 验证。
+import pyarrow  # noqa: F401 — preload before pandas; see comment above
+
 from pathlib import Path
 import os
 from dotenv import load_dotenv
