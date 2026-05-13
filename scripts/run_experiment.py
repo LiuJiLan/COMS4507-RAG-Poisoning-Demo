@@ -85,6 +85,7 @@ CSV_FIELDS = [
     "reranker_llm", "reranker_model",
     "k1_attack_success", "k1_poison_rank", "k1_n_poison", "k1_displaced", "k1_displaced_ids", "k1_score_gap",
     "k2_attack_success", "k2_poison_rank", "k2_n_poison", "k2_displaced", "k2_displaced_ids", "k2_score_gap",
+    "reranker_padded_clean", "reranker_padded_poisoned",
     "elapsed_sec", "error",
 ]
 
@@ -112,22 +113,56 @@ def load_all_poison_sets(poison_dir: Path) -> dict:
     return out
 
 
-def load_failed_combos(csv_path: Path, queries: list, poison_sets: dict, all_llms: set) -> list:
-    """读上次 CSV 的 error rows,重建 (query_item, (ps_name, ps_docs), llm_key) tuple 列表。"""
+def load_failed_combos(csv_path: Path, queries: list, poison_sets: dict, all_llms: set,
+                       padded_threshold: int | None = None) -> list:
+    """读上次 CSV 重建待 retry 的 (query_item, (ps_name, ps_docs), llm_key) tuple 列表。
+
+    匹配规则:
+      - `error` 列非空 → always retry(API call 抛了异常)
+      - 若 `padded_threshold` 给定且 CSV 有 `reranker_padded_clean/_poisoned` 列,
+        则 max(两列) >= threshold 的 row 也 retry(LLM under-output 或完全 fallback)
+    """
     qid_to_item = {q.get("query_id"): q for q in queries}
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         combos = []
+        seen_keys: set = set()
+        n_by_error = 0
+        n_by_padded = 0
         for r in reader:
-            if not r.get("error"):
+            qualifies = False
+            if r.get("error"):
+                qualifies = True
+                n_by_error += 1
+            elif padded_threshold is not None:
+                pc = _as_int(r.get("reranker_padded_clean"))
+                pp = _as_int(r.get("reranker_padded_poisoned"))
+                if max(pc, pp) >= padded_threshold:
+                    qualifies = True
+                    n_by_padded += 1
+            if not qualifies:
                 continue
             qid, ps_name, llm_key = r["query_id"], r["poison_set"], r["reranker_llm"]
+            key = (qid, ps_name, llm_key)
+            if key in seen_keys:
+                continue  # dedupe(同一 row 在 CSV 里应该只出现 1 次,防御性)
+            seen_keys.add(key)
             q_item = qid_to_item.get(qid)
             if q_item is None or ps_name not in poison_sets or llm_key not in all_llms:
-                print(f"  WARN: skip failed row (qid={qid}, ps={ps_name}, llm={llm_key}) — not resolvable")
+                print(f"  WARN: skip row (qid={qid}, ps={ps_name}, llm={llm_key}) — not resolvable")
                 continue
             combos.append((q_item, (ps_name, poison_sets[ps_name]), llm_key))
+    print(f"[retry] qualifying rows: {n_by_error} by error + {n_by_padded} by padded(threshold={padded_threshold}) = {len(combos)} combos")
     return combos
+
+
+def _as_int(s: str | None) -> int:
+    if s is None or s == "":
+        return 0
+    try:
+        return int(s)
+    except (ValueError, TypeError):
+        return 0
 
 
 def git_hash() -> str:
@@ -225,6 +260,8 @@ def run_one(pipeline: RAGPipeline,
             "k2_displaced": len(m2.displaced_docs),
             "k2_displaced_ids": "|".join(m2.displaced_docs),
             "k2_score_gap": f"{m2.score_gap:.4f}" if m2.score_gap is not None else "",
+            "reranker_padded_clean": result.reranker_padded_clean,
+            "reranker_padded_poisoned": result.reranker_padded_poisoned,
             "elapsed_sec": f"{elapsed:.2f}",
         })
     except Exception as e:
@@ -250,7 +287,12 @@ def main() -> None:
                         help="输出 CSV 路径(默认 data/results/expr_<timestamp>.csv)")
     parser.add_argument("--retry-errors", type=Path, default=None, dest="retry_errors",
                         help="读上次 CSV,只重跑 error 行(忽略 --limit / 笛卡尔积)")
+    parser.add_argument("--padded-threshold", type=int, default=None, dest="padded_threshold",
+                        help="配合 --retry-errors:max(reranker_padded_clean, _poisoned) >= N "
+                             "的 row 也重跑(N=1 重跑所有 anomaly;N=10 只重跑完全 fallback)")
     args = parser.parse_args()
+    if args.padded_threshold is not None and args.retry_errors is None:
+        parser.error("--padded-threshold requires --retry-errors")
 
     # ---- 加载输入 ----
     queries = load_queries(config.QUERY_FILE)
@@ -284,10 +326,10 @@ def main() -> None:
 
     # ---- 笛卡尔积 / retry-errors ----
     if args.retry_errors:
-        combos = load_failed_combos(args.retry_errors, queries, poison_sets, set(llm_keys))
+        combos = load_failed_combos(args.retry_errors, queries, poison_sets, set(llm_keys),
+                                    padded_threshold=args.padded_threshold)
         if not combos:
-            raise SystemExit(f"No resolvable error rows in {args.retry_errors}")
-        print(f"[retry] {len(combos)} failed combos loaded from {args.retry_errors.name}")
+            raise SystemExit(f"No resolvable rows in {args.retry_errors}")
     else:
         combos = list(product(queries, poison_sets.items(), llm_keys))
         if args.limit:

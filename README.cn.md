@@ -178,6 +178,21 @@ flowchart TB
 - 代码层保护：`_parse_ranking()` 在补齐 fallback 时输出 `WARNING` 日志（含 LLM model name 和 raw response），真实实验跑批时可 grep warning 数量统计每个 LLM 的 under-output 频率。
 - 调试入口：设环境变量 `RAG_DEBUG_RERANKER=1` 后跑 reranker 会把每次 LLM raw response + parse 后顺序打到 stderr，方便复现 / 排查。
 
+**v3 主实验复现(2026-05-13,600 row,30 query × 5 attack × 4 LLM)**:
+
+| LLM | anomaly row / 150 | 占比 | 主要类型 |
+|---|---|---|---|
+| Claude 4.5 Sonnet | **1** | 0.7% | 1 次 padded 7 |
+| Llama 3.3 70B | 7 | 4.7% | 偶发 padded 1 / 极端 padded 9(raw='1') |
+| **Gemini 2.0 Flash** | 21 | **14%** | 主要是 OpenRouter 504/429 API fail(完全 fallback to dense),少量 padded |
+| **GPT-4o-mini** | **27** | **18%** | 全是 LLM under-output(padded 1 / padded 5 居多,几次 padded 6) |
+
+含义:
+- **dummy smoketest 的"GPT/Llama 各给 5 个"在 v3 主实验里被 partial refute**:Llama 实际很少 under-output(4.7%);GPT-4o-mini 才是稳定 under-output 的 18%
+- **Gemini 14% 是新发现**(O1 dummy smoketest 没观察到):不是 LLM 行为问题,是 OpenRouter 给 gemini-2.0-flash 后端的 Google free-tier quota 共享导致的 504/429
+- Claude 0.7% 单次 padded 7(raw='1,9,2'):极罕见 corner case
+- 实际数据 telemetry(`reranker_padded_clean/_poisoned` 两列已落进 CSV schema):pandas `df[(df.reranker_padded_clean==0) & (df.reranker_padded_poisoned==0)]` 即可剔除受影响 row 做严格分析
+
 ### O2: Gemini 2.0 Flash 倾向于同意 dense retriever 的初始排序
 
 同次 smoketest 中，Gemini 在 clean side 输出 `1,2,3,4,5,6,7,8,9,10` —— 完美按原序，即"完全同意 dense retriever 的判断"。其他 3 个 LLM（Claude / GPT / Llama）都对前 3 位做了交换。
@@ -187,3 +202,12 @@ flowchart TB
 - 在 30 个真实 query × 真实 300 篇语料上，Gemini 是否仍倾向同意原序？
 - 如果是，说明 Gemini 作为 reranker 在 RAG pipeline 里实际"贡献"较低，这本身就是 reranker 选型的重要观察。
 - 攻击侧含义：如果某 LLM reranker 倾向"放手不管"，那 dense retriever 阶段的攻击成功率 ≈ 整个 pipeline 的攻击成功率，reranker 起不到防御作用。
+
+**v3 主实验复现(2026-05-13,600 row)需要的 caveat**:
+
+直接看 FULL CSV,Gemini 的 ASR@k2 跟其他 LLM 几乎一致(Authority Spoof 97% / Contradiction 87% / Keyword Stuffing 60%),看起来 O2 "同意原序" 假设被印证。**但**:
+
+- 14% (21/150) gemini row 是 OpenRouter 504/429 → reranker.py:130 fallback to dense order,**完全没调到 LLM**,这部分的 k2 = dense baseline,本质上是 "假的 agreement"
+- 剔除这 21 row 后(`df[df.reranker_padded_poisoned < 10 & df.reranker_padded_clean < 10]`),Gemini 真实 ASR 在 Keyword Stuffing 上 **60% → 54%**(-6pp),Structured Format 80% → 76%
+- 即:**Gemini 真实判断比 FULL 数据显示的略 robust,O2 "完全同意原序" 的强假设被部分推翻** — Gemini 在 surface attack 上确实会做一定判断
+- 但 13pp gap(Claude Contradiction 77% vs Llama 90%)远大于 Gemini 的 ~6pp fallback artifact,**主 finding 稳健**

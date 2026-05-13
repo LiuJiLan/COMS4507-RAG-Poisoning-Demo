@@ -32,6 +32,11 @@ class PipelineResult:
     top_k2_clean: List[RetrievalResult]
     top_k2_poisoned: List[RetrievalResult]
     metrics_k2: AttackMetrics
+    # k_2 reranker 完整性 telemetry:parser 按 dense 原序补齐的位置数。
+    # 0 = LLM 完整给出 / 1..N-1 = under-output / N = API fail(完全 fallback)。
+    # 给主实验后处理用,UI 不必关心。
+    reranker_padded_clean: int = 0
+    reranker_padded_poisoned: int = 0
     # generator 阶段
     answer_clean: str = ""
     answer_poisoned: str = ""
@@ -91,7 +96,7 @@ class RAGPipeline:
         """
         # ----- Clean side -----
         top_k1_clean = self.retriever.search(query, k=self.top_k_1)
-        top_k2_clean = self.reranker.rerank(query, top_k1_clean, top_k=self.top_k_2)
+        top_k2_clean, padded_clean = self.reranker.rerank(query, top_k1_clean, top_k=self.top_k_2)
         answer_clean = ""
         if include_generator:
             answer_clean = self.generator.generate(query, top_k2_clean)
@@ -100,8 +105,9 @@ class RAGPipeline:
         token = self.retriever.inject_poison(poison_docs)
         try:
             top_k1_poisoned = self.retriever.search(query, k=self.top_k_1)
-            top_k2_poisoned = self.reranker.rerank(query, top_k1_poisoned,
-                                                    top_k=self.top_k_2)
+            top_k2_poisoned, padded_poisoned = self.reranker.rerank(
+                query, top_k1_poisoned, top_k=self.top_k_2,
+            )
             answer_poisoned = ""
             if include_generator:
                 answer_poisoned = self.generator.generate(query, top_k2_poisoned)
@@ -121,6 +127,8 @@ class RAGPipeline:
             top_k2_clean=top_k2_clean,
             top_k2_poisoned=top_k2_poisoned,
             metrics_k2=metrics_k2,
+            reranker_padded_clean=padded_clean,
+            reranker_padded_poisoned=padded_poisoned,
             answer_clean=answer_clean,
             answer_poisoned=answer_poisoned,
         )

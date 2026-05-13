@@ -7,7 +7,7 @@ LLM-as-reranker。
 Prompt 设计：用编号列出所有文档，让 LLM 返回新的排名顺序。
 这种"listwise"方式比"pointwise scoring"更稳定。
 """
-from typing import List
+from typing import List, Tuple
 import logging
 import os
 import re
@@ -100,37 +100,47 @@ class LLMReranker:
         self.llm = llm_client
 
     def rerank(self, query: str, candidates: List[RetrievalResult],
-               top_k: int = 5) -> List[RetrievalResult]:
+               top_k: int = 5) -> Tuple[List[RetrievalResult], int]:
         """
-        重排 candidates，返回 top_k。
-        
+        重排 candidates,返回 (top_k 文档, padded_count)。
+
         Args:
             query: 用户 query
             candidates: 来自 dense retriever 的 top-k_1 文档
             top_k: 要返回的 top_k_2 数量
-        
+
         Returns:
-            List[RetrievalResult]，按 LLM 的排序排列，rank 字段已更新为 1..k_2
+            (reranked, padded):
+              - reranked: List[RetrievalResult],按 LLM 的排序排列,rank 字段已更新为 1..k_2
+              - padded: parser 按 dense 原序补齐的位置数,∈ [0, len(candidates)]。
+                  * 0 = LLM 完整给出 N 个 rank
+                  * 1..N-1 = LLM under-output(给了 N-padded 个,parser 补 padded 个)
+                  * N = API fail / 完全 fallback(LLM 没参与,整条排序都是 dense)
+                Caller 在主实验时应将此值写入 CSV,便于后处理筛除受污染 row。
         """
         if not candidates:
-            return []
+            return [], 0
         if len(candidates) == 1:
             # 只有一个文档，没必要重排
             candidates[0].rank = 1
-            return candidates[:top_k]
+            return candidates[:top_k], 0
 
         prompt = RERANK_PROMPT_TEMPLATE.format(
             query=query,
             document_block=_format_documents(candidates),
         )
 
+        api_fail = False
         try:
             response = self.llm.complete(prompt, max_tokens=200, temperature=0.0)
         except Exception as e:
             logger.error(f"LLM reranker failed: {e}; falling back to original order")
             response = ",".join(str(i) for i in range(1, len(candidates) + 1))
+            api_fail = True
 
         ranking, missing = _parse_ranking(response, len(candidates))
+        # API fail 时 LLM 完全没参与,padded 记为满值(len(candidates));否则用 parser 实际补齐数。
+        padded = len(candidates) if api_fail else missing
 
         # 保护性 warning: LLM 给的有效 index 不足 n,parser 按原序补了 missing 个。
         # 默认可见(WARNING level),提醒未来真实实验里 LLM rerank 的"完整性"差异。
@@ -162,4 +172,4 @@ class LLMReranker:
             new_r = RetrievalResult(doc=r.doc, score=r.score, rank=new_rank)
             reranked.append(new_r)
 
-        return reranked[:top_k]
+        return reranked[:top_k], padded
