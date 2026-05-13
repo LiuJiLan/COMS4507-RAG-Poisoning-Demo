@@ -1,14 +1,18 @@
 """
-scripts/quick_plot.py — ad-hoc 出图看实验结果
+Quick ad-hoc plotting of experiment results.
+快速 ad-hoc 出图查看实验结果。
 
-读 data/results/ 下最新一个 expr_*.csv,出两张图:
-  - expr_<ts>.png          — ASR by attack(4 LLM 加权)
-  - expr_<ts>_by_llm.png   — ASR@k2 by LLM × attack(LLM 行为差异)
+Reads the most recent expr_*.csv under data/results/ and emits two figures:
+  - expr_<ts>.png          — ASR by attack (weighted across 4 LLMs)
+  - expr_<ts>_by_llm.png   — ASR@k2 by LLM × attack (per-LLM behaviour diff)
 
+读 data/results/ 下最新的 expr_*.csv,出两张图:by-attack 加权图 + by-LLM × attack 拆分图。
+
+Demo / sanity tool only — proper analysis notebook is written once experiments are complete.
 仅 demo / sanity 用,正式 analysis notebook 实验跑完再写。
 
-用法:
-    python scripts/quick_plot.py                 # 用最新 CSV
+Usage:
+    python scripts/quick_plot.py                 # use the most recent CSV
     python scripts/quick_plot.py path/to/expr.csv
 """
 import sys
@@ -16,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import config  # noqa: load pyarrow preload  # type: ignore
+import config  # noqa: F401 — load triggers pyarrow preload
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -26,7 +30,10 @@ def _attack_label(poison_set: str) -> str:
 
 
 def plot_by_attack(df: pd.DataFrame, csv_path: Path) -> Path:
-    """ASR by attack — k1 vs k2 grouped bars,4 LLM 加权平均。"""
+    """
+    ASR by attack — k1 vs k2 grouped bars, weighted across 4 LLMs.
+    ASR by attack — k1 vs k2 分组柱状图,4 LLM 加权平均。
+    """
     grouped = df.groupby("poison_set").agg(
         k1_asr=("k1_attack_success", lambda s: s.eq(True).mean()),
         k2_asr=("k2_attack_success", lambda s: s.eq(True).mean()),
@@ -65,7 +72,10 @@ def plot_by_attack(df: pd.DataFrame, csv_path: Path) -> Path:
 
 
 def plot_by_llm(df: pd.DataFrame, csv_path: Path) -> Path:
-    """ASR@k2 by LLM × attack — 一组 attack 一簇,4 个 LLM bar。看 LLM 行为差异。"""
+    """
+    ASR@k2 by LLM × attack — one cluster per attack, 4 bars per cluster. Shows per-LLM differences.
+    ASR@k2 by LLM × attack — 一组 attack 一簇 4 个 LLM bar,看 LLM 行为差异。
+    """
     grouped = df.groupby(["poison_set", "reranker_llm"]).agg(
         k2_asr=("k2_attack_success", lambda s: s.eq(True).mean()),
     ).reset_index()

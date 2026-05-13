@@ -1,14 +1,17 @@
 """
 Brisbane corpus diversity / template-leak self-check.
+Brisbane 语料多样性 + 模板痕迹自检。
 
+Complements check_corpus.py: that script verifies "shape" (schema / fields / length);
+this one verifies "content" (URL diversity / template traces / title homogeneity).
 跟 check_corpus.py 互补:check_corpus.py 验"形状"(schema / 字段 / 长度),
 本脚本验"内容"(URL 多样性 / 模板痕迹 / title 同质化)。
 
 Usage:
-    python check_diversity.py                          # 默认读 ./brisbane_corpus.json
-    python check_diversity.py path/to/corpus.json      # 指定路径
+    python check_diversity.py                          # default: ./brisbane_corpus.json
+    python check_diversity.py path/to/corpus.json      # specify a path
 
-Exit code: 0 = 全过 / 1 = 有 blocker
+Exit code: 0 = all pass / 1 = at least one blocker.
 """
 
 import argparse
@@ -22,11 +25,13 @@ from collections import Counter
 MIN_UNIQUE_WIKI_URLS = 30
 MAX_CHUNKS_PER_WIKI_URL = 3
 
-# 模板痕迹:这些字符串不应出现在文档 content 里
+# Template-leak phrases that must NOT appear in document content.
+# 模板痕迹:这些字符串不应出现在文档 content 里。
 FORBIDDEN_PHRASES = [
     "RAG knowledge base",
 ]
-# warn 级:可能是模板残留,需要人工核查
+# Warn-level: possible template residue, manual review needed.
+# warn 级:可能是模板残留,需要人工核查。
 WARN_PHRASES = [
     "this document helps answer",
     "for a local knowledge base",
@@ -35,7 +40,8 @@ WARN_PHRASES = [
 
 MIN_DISTINCT_RESTAURANT_TAILS = 4
 
-# 单一 title suffix 在 topic 内占比超过此阈值 → 模板痕迹
+# If a single title suffix dominates within a topic above this percentage → template leak.
+# 单一 title suffix 在 topic 内占比超过此阈值 → 模板痕迹。
 MAX_TOPIC_SUFFIX_DOMINANCE_PCT = 80
 
 

@@ -1,23 +1,30 @@
 """
-scripts/backfill_padded_from_stdout.py — one-shot 补救脚本
+One-shot script to backfill reranker_padded_clean / reranker_padded_poisoned
+columns from a saved stdout log.
+一次性脚本:从保存的 stdout log 反推 reranker_padded_clean / _poisoned 两列回填 CSV。
 
-读取 PowerShell 跑批保存的 stdout log,提取每条 row 内 reranker
-WARNING/ERROR 事件,反推 reranker_padded_clean / reranker_padded_poisoned
-两列填回 CSV(主实验 2026-05-13 跑批后 reranker.py 还没 surface padded
-信息,导致原 CSV 缺这两列;此脚本一次性补)。
+Why this exists: when the main experiment was run on 2026-05-13, reranker.py
+hadn't surfaced the padded count yet, so the original CSV is missing those two
+columns. This script extracts the inline WARNING/ERROR events per CSV row from
+the PowerShell stdout mirror and writes a `*_with_padded.csv`.
+存在原因:主实验 2026-05-13 跑批时 reranker.py 还没 surface padded 信息,导致原
+CSV 缺这两列;此脚本从 PowerShell stdout log 一次性补,产出 *_with_padded.csv。
 
 Heuristic:
 - 0 anomaly → (0, 0)
-- 1 anomaly → 不能区分 clean / poisoned 一路,两列都填同 padded 值(保守)
-- 2 anomaly → 第 1 个 = clean,第 2 个 = poisoned(pipeline 先 clean 后 poisoned)
+- 1 anomaly → cannot tell clean vs poisoned; conservatively fill both columns same
+- 2 anomaly → 1st = clean, 2nd = poisoned (pipeline runs clean side first)
 - API fail (ERROR `LLM reranker failed: ...; falling back`) → padded = 10
 
-用法:
-    python scripts/backfill_padded_from_stdout.py \
-        data/results/expr_20260513_172627.stdout.log \
+启发式:0/1/2 anomaly 分别对应 (0,0)/(同值,同值)/(clean,poisoned);API fail → padded=10。
+
+Usage:
+    python scripts/backfill_padded_from_stdout.py \\
+        data/results/expr_20260513_172627.stdout.log \\
         data/results/expr_20260513_172627.csv
 
-输出 `expr_20260513_172627_with_padded.csv`,不动原 CSV。
+Output: `expr_20260513_172627_with_padded.csv` (original CSV untouched).
+输出 `expr_..._with_padded.csv`,不动原 CSV。
 """
 import csv
 import re
@@ -34,7 +41,10 @@ ROW_END_RE = re.compile(r"^\s*→\s+(k2=|ERROR)")
 
 
 def parse_stdout(path: Path) -> dict:
-    """Return {(qid, poison_set, llm): [padded_value, ...]} keyed by row triplet."""
+    """
+    Return {(qid, poison_set, llm): [padded_value, ...]} keyed by row triplet.
+    返回以 (qid, poison_set, llm) 为 key 的 padded 事件列表。
+    """
     rows: dict = {}
     cur_key = None
     cur_events: list = []
@@ -53,14 +63,16 @@ def parse_stdout(path: Path) -> dict:
                 cur_events = []
             if cur_key is None:
                 continue
-            # Same anchor line may also contain an inline anomaly.
+            # The anchor line itself may also contain an inline anomaly.
+            # anchor 行本身也可能含 inline anomaly。
             m_warn = WARN_PADDED_RE.search(line)
             m_err = ERROR_FALLBACK_RE.search(line)
             if m_warn:
                 cur_events.append(int(m_warn.group(1)))
             elif m_err:
                 cur_events.append(10)
-            # row end → reset (anchor 行的下一行通常是 → k2=...)
+            # Row end → reset; the line after the anchor is usually "→ k2=...".
+            # 行结束 → reset;anchor 行的下一行通常是 → k2=...
             if ROW_END_RE.match(line):
                 flush()
                 cur_key = None
@@ -98,7 +110,9 @@ def main():
         fieldnames = reader.fieldnames or []
         rows = list(reader)
 
-    # Inject new columns just before elapsed_sec for readability (mirror current code order).
+    # Insert the two new columns just before elapsed_sec for readability
+    # (mirrors the column order in current run_experiment.py).
+    # 在 elapsed_sec 之前插入两个新列,顺序对齐当前 run_experiment.py 输出。
     new_cols = ["reranker_padded_clean", "reranker_padded_poisoned"]
     if "reranker_padded_clean" not in fieldnames:
         insert_at = fieldnames.index("elapsed_sec") if "elapsed_sec" in fieldnames else len(fieldnames)

@@ -1,39 +1,47 @@
 """
-快速 CLI 实验脚本 —— 不走 GUI,直接看 ranking 结果。
+Quick CLI experiment script — bypasses the GUI and prints rankings directly.
+快速 CLI 实验脚本,不走 GUI,直接看 ranking 结果。
 
-开发期主要在这里跑:
-- 改下面 QUERY / POISON_SET / RERANKER_LLM 变量
-- PyCharm 绿三角运行
-- 终端立刻看到 clean vs poisoned 的两阶段排名 + 攻击指标
+Primary dev-time workflow:
+- Edit the QUERY / POISON_SET / RERANKER_LLM constants below.
+- Hit "run" in PyCharm.
+- See the clean vs poisoned two-stage rankings + attack metrics in the terminal.
 
-GUI 只在 demo 那天用。
+The GUI is reserved for the live demo.
+开发期主要用这个跑;改下面的 QUERY / POISON_SET / RERANKER_LLM 即可。GUI 只在 demo 那天用。
 """
 import os
 import sys
 import warnings
 from pathlib import Path
 
-# === 噪音抑制(必须在 HF / transformers / sentence-transformers 加载前)===
+# === Noise suppression — must precede HF / transformers / sentence-transformers imports ===
+# === 噪音抑制(必须在 HF / transformers / sentence-transformers 加载前) ===
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
 
-# Windows 控制台默认 GBK,无法 encode ☣ 等 Unicode 标记。强制 UTF-8,encoding fail 走替换。
+# Windows console defaults to GBK and cannot encode ☣ etc.; force UTF-8 with replace.
+# Windows 控制台默认 GBK,无法 encode ☣ 等 Unicode 标记;强制 UTF-8,encoding fail 走替换。
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# 让 scripts 能 import 项目模块
+# Allow `python scripts/quickrun.py` to import top-level project modules.
+# 让 `python scripts/quickrun.py` 能 import 项目模块。
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import logging
-# WARNING 级就够,不要 INFO(避免 sentence-transformers 大量 HEAD 日志刷屏)
+# WARNING level is enough — INFO floods stdout with sentence-transformers HEAD logs.
+# WARNING 级就够,不要 INFO(避免 sentence-transformers HEAD 日志刷屏)。
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
 
-# 抑制 transformers 内部 logger 的噪音(yolos / zoedepth 等 lazy-load warning)
+# Silence the noisy transformers lazy-load warnings (yolos / zoedepth etc.).
+# 抑制 transformers 内部 logger 的噪音(yolos / zoedepth 等 lazy-load warning)。
 from transformers.utils import logging as hf_logging
 hf_logging.set_verbosity_error()
 
-# 抑制 huggingface_hub 的 HF_TOKEN unauthenticated 警告(走自己的 logger,不是 Python warnings)
+# Silence huggingface_hub's HF_TOKEN unauthenticated warning (its own logger, not Python warnings).
+# 抑制 huggingface_hub 的 HF_TOKEN unauthenticated 警告(走自己的 logger,不是 Python warnings)。
 from huggingface_hub.utils import logging as hub_logging
 hub_logging.set_verbosity_error()
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
@@ -46,13 +54,14 @@ from src.llm_clients import make_client
 
 
 # ======================================================================
-# 改这里跑不同实验
+# Edit here to run different experiments.
+# 改这里跑不同实验。
 # ======================================================================
 QUERY = "best Chinese restaurant in Brisbane"
-POISON_SET = "P_demo"        # 对应 data/poison_sets/<这里>.json
-RERANKER_LLM = "claude"      # config.AVAILABLE_LLMS 的 key: claude / gpt4o / gemini / llama
-USE_STUB_RERANKER = False    # True 跳过真 LLM,reranker 走 stub(不消耗 API quota)
-INCLUDE_GENERATOR = False    # True 跑 generator(会再调一次 LLM 生成自然语言答案)
+POISON_SET = "P_demo"        # matches data/poison_sets/<this>.json
+RERANKER_LLM = "claude"      # config.AVAILABLE_LLMS key: claude / gpt4o / gemini / llama
+USE_STUB_RERANKER = False    # True skips the real LLM; reranker uses stub (no API quota)
+INCLUDE_GENERATOR = False    # True runs the generator (extra LLM call for the answer)
 # ======================================================================
 
 
@@ -63,18 +72,19 @@ def _section(title: str) -> None:
 
 
 def main() -> None:
-    # ---- 构建 LLM clients ----
+    # ---- Build LLM clients ----
     reranker_client = make_client(
         config.AVAILABLE_LLMS[RERANKER_LLM],
         use_stub=USE_STUB_RERANKER,
     )
-    # generator 不调用时用 stub,省 quota
+    # Use stub for the generator when not invoked, to save quota.
+    # generator 不调用时用 stub,省 quota。
     generator_client = make_client(
         config.AVAILABLE_LLMS[config.GENERATOR_LLM],
         use_stub=not INCLUDE_GENERATOR,
     )
 
-    # ---- 构建 / 加载 pipeline ----
+    # ---- Build / load pipeline ----
     pipeline = RAGPipeline(
         embedding_model=config.EMBEDDING_MODEL,
         embedding_device=config.EMBEDDING_DEVICE,
@@ -91,7 +101,7 @@ def main() -> None:
         background_docs = load_corpus(config.BACKGROUND_CORPUS_FILE)
         pipeline.initialize(base_docs + background_docs)
 
-    # ---- 加载 poison set ----
+    # ---- Load poison set ----
     poison_path = config.POISON_DIR / f"{POISON_SET}.json"
     if not poison_path.exists():
         raise FileNotFoundError(
@@ -111,7 +121,7 @@ def main() -> None:
     print(f"Generator:    {generator_client!r}{gen_suffix}")
     print("=" * 72)
 
-    # ---- 跑实验 ----
+    # ---- Run the experiment ----
     result = pipeline.run_experiment(
         query=QUERY,
         poison_docs=poison_docs,

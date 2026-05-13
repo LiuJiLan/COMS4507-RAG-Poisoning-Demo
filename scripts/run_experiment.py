@@ -1,24 +1,33 @@
 """
-scripts/run_experiment.py — 批量实验脚本
+Batch experiment runner.
+批量实验脚本。
+
+Runs the (query × poison_set × reranker_LLM) cartesian product. For each
+combination it calls pipeline.run_experiment() and writes one row of metrics
+to a CSV.
 
 跑 (query × poison_set × reranker_LLM) 笛卡尔积,每个组合调用
 pipeline.run_experiment(),把指标 row by row 写到 CSV。
 
-用法:
-  python scripts/run_experiment.py                   # 全跑(用真 LLM)
-  python scripts/run_experiment.py --stub            # 全跑用 stub(不消耗 quota,验证脚本逻辑)
-  python scripts/run_experiment.py --limit 5         # 只跑前 5 个组合
-  python scripts/run_experiment.py --llms claude llama   # 只跑这两家
-  python scripts/run_experiment.py --output data/results/my.csv
+Usage:
+    python scripts/run_experiment.py                       # full run (real LLMs)
+    python scripts/run_experiment.py --stub                # full run with stubs (no quota burn)
+    python scripts/run_experiment.py --limit 5             # first 5 combinations only
+    python scripts/run_experiment.py --llms claude llama   # subset of LLMs
+    python scripts/run_experiment.py --output data/results/my.csv
 
-预算估算(完整真实跑):
-  ~30 query × ~5 poison × 4 LLM = 600 组合,每组合 2 个 API call → ~1200 调用
-  ~$2-4 USD,~1 小时(主要等 claude latency)
+Budget estimate (full real run):
+  ~30 query × ~5 poison × 4 LLM = 600 combinations × 2 API calls = ~1200 calls
+  ~$2-4 USD, ~1 hour (latency dominated by Claude).
+预算估算(全量真实跑):~600 组合 × 2 call ≈ 1200 调用,~$2-4 USD,~1 小时。
 
-设计要点:
-- pipeline 只构建一次,后续每次只 swap reranker.llm
-- 每行 CSV 含 query/poison/llm 标识 + k1+k2 各自的 metrics + 耗时
-- error 列允许部分失败不中断整批
+Design points:
+- Build the pipeline once; only swap reranker.llm per combination.
+- Each CSV row carries query / poison / llm identifiers + k1 / k2 metrics + elapsed.
+- An `error` column lets partial failures coexist with successful rows.
+
+设计要点:pipeline 只构建一次,后续每次只 swap reranker.llm;CSV 每行带 query/poison/llm
+标识 + k1/k2 各自的 metrics + 耗时;error 列允许部分失败不中断整批。
 """
 import argparse
 import csv
@@ -32,7 +41,8 @@ from datetime import datetime
 from itertools import product
 from pathlib import Path
 
-# === 噪音抑制(必须在 HF / transformers / sentence-transformers 加载前)===
+# === Noise suppression — must precede HF / transformers / sentence-transformers imports ===
+# === 噪音抑制(必须在 HF / transformers / sentence-transformers 加载前) ===
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
@@ -61,10 +71,13 @@ def fmt_dur(seconds: float) -> str:
 
 
 def attach_errors_log(out_path: Path) -> Path:
-    """Add a WARNING+ FileHandler to the root logger, writing to expr_<ts>.errors.log.
+    """
+    Attach a WARNING+ FileHandler to the root logger; output goes to expr_<ts>.errors.log.
+    给 root logger 挂一个 WARNING+ FileHandler,输出到 expr_<ts>.errors.log。
 
-    Captures everything that goes wrong (LLM under-output, API errors, parse failures,
-    run_one exceptions) so the run is reviewable without scrolling stdout.
+    Captures everything that goes wrong (LLM under-output, API errors, parse
+    failures, run_one exceptions) so the run is reviewable without scrolling stdout.
+    捕获跑批中所有异常(LLM under-output / API 错误 / parse 失败等),不用翻 stdout 就能复盘。
     """
     err_path = out_path.with_suffix(".errors.log")
     h = logging.FileHandler(err_path, encoding="utf-8", mode="w")
@@ -75,7 +88,10 @@ def attach_errors_log(out_path: Path) -> Path:
 
 
 class _Tee:
-    """Write to multiple text streams. 用于把 stdout/stderr 同时灌进 console + stdout.log。"""
+    """
+    Fan-out writer for multiple text streams.
+    把 stdout/stderr 同时灌进多个 stream。
+    """
     def __init__(self, *streams):
         self.streams = streams
 
@@ -99,21 +115,29 @@ class _Tee:
 
 
 def attach_stdout_tee(out_path: Path):
-    """同时把 stdout/stderr 镜像到 expr_<ts>.stdout.log。
+    """
+    Mirror stdout / stderr into expr_<ts>.stdout.log.
+    把 stdout / stderr 镜像到 expr_<ts>.stdout.log。
 
-    存在意义:backfill_padded_from_stdout.py 依赖 console 输出的 anchor 行 `[N/total]`
-    + inline WARNING/ERROR 顺序对齐到 CSV row。把它自动落盘,免去用户 copy-paste。
+    Reason this exists: backfill_padded_from_stdout.py relies on the console
+    anchor lines `[N/total]` together with inline WARNING/ERROR ordering to
+    align padded counts back into the CSV; writing the log automatically removes
+    the need for the user to copy-paste.
+    存在意义:backfill_padded_from_stdout.py 依赖 console 的 anchor 行 [N/total]
+    + inline WARNING/ERROR 顺序对齐到 CSV row;自动落盘免去 copy-paste。
 
-    同步 rebind root logger 的 console StreamHandler,确保 logger 输出也进 stdout.log。
-    返回 (path, file_handle),caller 应在 main 末尾 close 文件。
+    Returns (path, file_handle); caller closes the handle at the end of main.
+    返回 (path, file_handle),caller 应在 main 末尾 close。
     """
     stdout_path = out_path.with_suffix(".stdout.log")
     f = open(stdout_path, "w", encoding="utf-8", buffering=1)  # line-buffered
     sys.stdout = _Tee(sys.__stdout__, f)
     sys.stderr = _Tee(sys.__stderr__, f)
-    # basicConfig 创建的 StreamHandler 持有的是 module 加载时的 sys.stderr 引用,
-    # 我们刚刚 reassign 了 sys.stderr,需要把它指过来。FileHandler 排除(它自己有
-    # baseFilename,流不一样)。
+    # The StreamHandler installed by basicConfig captured the import-time
+    # sys.stderr; we just rebound sys.stderr, so point the handler at the new
+    # stream. Skip FileHandlers (they have their own baseFilename).
+    # basicConfig 创建的 StreamHandler 持有的是 module 加载时的 sys.stderr 引用;
+    # 我们刚刚 reassign 了 sys.stderr,需要把它指过来。FileHandler 排除。
     for h in logging.getLogger().handlers:
         if type(h) is logging.StreamHandler:
             h.stream = sys.stderr
@@ -137,7 +161,10 @@ CSV_FIELDS = [
 
 
 def load_queries(path: Path) -> list[dict]:
-    """从 YAML 加载 query 列表。期望 list of dicts,每个 dict 含 query_id + query。"""
+    """
+    Load query list from YAML. Expects a list of dicts each containing query_id + query.
+    从 YAML 加载 query 列表,期望 list of dicts,每个含 query_id + query。
+    """
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, list):
@@ -149,7 +176,10 @@ def load_queries(path: Path) -> list[dict]:
 
 
 def load_all_poison_sets(poison_dir: Path) -> dict:
-    """加载 data/poison_sets/ 下所有 .json,返回 {name: [Document,...]}。"""
+    """
+    Load every .json under data/poison_sets/.
+    加载 data/poison_sets/ 下所有 .json。
+    """
     out = {}
     for p in sorted(poison_dir.glob("*.json")):
         try:
@@ -161,12 +191,18 @@ def load_all_poison_sets(poison_dir: Path) -> dict:
 
 def load_failed_combos(csv_path: Path, queries: list, poison_sets: dict, all_llms: set,
                        padded_threshold: int | None = None) -> list:
-    """读上次 CSV 重建待 retry 的 (query_item, (ps_name, ps_docs), llm_key) tuple 列表。
+    """
+    Rebuild the retry list from a previous CSV.
+    从上次 CSV 重建待 retry 的组合列表。
 
-    匹配规则:
-      - `error` 列非空 → always retry(API call 抛了异常)
-      - 若 `padded_threshold` 给定且 CSV 有 `reranker_padded_clean/_poisoned` 列,
-        则 max(两列) >= threshold 的 row 也 retry(LLM under-output 或完全 fallback)
+    Match rules:
+      - Non-empty `error` column → always retry (the API call threw).
+      - If padded_threshold is given AND the CSV has the padded columns,
+        rows with max(padded_clean, padded_poisoned) >= threshold also retry
+        (LLM under-output or full fallback).
+
+    匹配规则:error 列非空 → always retry;若 padded_threshold 给定且有 padded 列,
+    max(两列) >= threshold 也 retry(LLM under-output 或完全 fallback)。
     """
     qid_to_item = {q.get("query_id"): q for q in queries}
     with open(csv_path, "r", encoding="utf-8") as f:
@@ -191,7 +227,7 @@ def load_failed_combos(csv_path: Path, queries: list, poison_sets: dict, all_llm
             qid, ps_name, llm_key = r["query_id"], r["poison_set"], r["reranker_llm"]
             key = (qid, ps_name, llm_key)
             if key in seen_keys:
-                continue  # dedupe(同一 row 在 CSV 里应该只出现 1 次,防御性)
+                continue  # dedupe — defensive, each row should appear once
             seen_keys.add(key)
             q_item = qid_to_item.get(qid)
             if q_item is None or ps_name not in poison_sets or llm_key not in all_llms:
@@ -222,7 +258,10 @@ def git_hash() -> str:
 
 def write_meta_sidecar(csv_path: Path, args, llm_keys, poison_sets, queries,
                        n_combos: int, n_errors: int, total_elapsed: float) -> Path:
-    """跟 CSV 同名的 .meta.json sidecar,存复现需要的全部上下文。"""
+    """
+    Write a .meta.json sidecar next to the CSV with all context needed to reproduce.
+    在 CSV 旁写一个 .meta.json sidecar,存复现所需的全部上下文。
+    """
     meta_path = csv_path.with_suffix(".meta.json")
     meta = {
         "csv": csv_path.name,
@@ -270,7 +309,10 @@ def run_one(pipeline: RAGPipeline,
             llm_key: str,
             llm_cfg: dict,
             use_stub: bool) -> dict:
-    """跑一个 (query, poison_set, llm) 组合,返回一行 dict。"""
+    """
+    Run one (query, poison_set, llm) combination and return a CSV row.
+    跑一个 (query, poison_set, llm) 组合,返回一行 dict。
+    """
     pipeline.reranker.llm = make_client(llm_cfg, use_stub=use_stub)
 
     row = {f: "" for f in CSV_FIELDS}
@@ -341,7 +383,7 @@ def main() -> None:
     if args.padded_threshold is not None and args.retry_errors is None:
         parser.error("--padded-threshold requires --retry-errors")
 
-    # ---- 加载输入 ----
+    # ---- Load inputs ----
     queries = load_queries(config.QUERY_FILE)
     poison_sets = load_all_poison_sets(config.POISON_DIR)
     if not poison_sets:
@@ -372,6 +414,7 @@ def main() -> None:
     errors_log = attach_errors_log(out_path)
     stdout_log, _stdout_fh = attach_stdout_tee(out_path)
 
+    # ---- Cartesian product / retry-errors ----
     # ---- 笛卡尔积 / retry-errors ----
     if args.retry_errors:
         combos = load_failed_combos(args.retry_errors, queries, poison_sets, set(llm_keys),
@@ -384,7 +427,7 @@ def main() -> None:
             combos = combos[: args.limit]
 
     total = len(combos)
-    avg_cost = 0.0 if args.stub else 0.003   # 4 模型平均
+    avg_cost = 0.0 if args.stub else 0.003   # rough per-call average across 4 models
     est_cost = total * 2 * avg_cost
 
     print("Experiment plan:")
@@ -408,7 +451,7 @@ def main() -> None:
     )
     pipeline.load_cached_index(config.FAISS_CACHE, config.DOCS_CACHE)
 
-    # ---- 跑 ----
+    # ---- Run ----
     rows = []
     t_start = time.time()
     for i, (query_item, (ps_name, ps_docs), llm_key) in enumerate(combos, start=1):
@@ -433,7 +476,7 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    # ---- 汇总 ----
+    # ---- Summary ----
     n_error = sum(1 for r in rows if r["error"])
     ok_rows = [r for r in rows if not r["error"]]
     n_k1 = sum(1 for r in ok_rows if r["k1_attack_success"] is True)

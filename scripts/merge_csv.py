@@ -1,16 +1,21 @@
 """
-scripts/merge_csv.py — 融合多个 expr_*.csv,按 (query_id, poison_set, reranker_llm)
-triplet 匹配;后到的 row 覆盖前到的(命令行右边的 CSV 优先级高)。
+Merge multiple expr_*.csv files by (query_id, poison_set, reranker_llm) triplet;
+later inputs override earlier ones (right-most CSV on the command line wins).
+按 (query_id, poison_set, reranker_llm) 三元组融合多个 expr_*.csv,
+后到的 row 覆盖前到的(命令行右边优先级高)。
 
-用法:
+Usage:
     python scripts/merge_csv.py base.csv retry1.csv retry2.csv -o final.csv
 
-典型流程(本次主实验 v1 + retry 融合):
-    # 1. 用 backfill 后的 CSV 作为 base
-    # 2. 跑 retry: --retry-errors expr_v1_with_padded.csv --padded-threshold 1
-    # 3. (retry 完后)backfill_padded_from_stdout 把 retry 的 stdout 也补 padded
-    #    或直接用 run_experiment 已经 surface 的 padded 列(reranker.py 已改)
-    # 4. merge_csv base retry → final
+Typical flow (v1 + retry):
+    1. Use the backfilled CSV as the base.
+    2. Retry: --retry-errors expr_v1_with_padded.csv --padded-threshold 1
+    3. After retry, either backfill again from the retry stdout, or rely on
+       reranker.py emitting padded columns directly.
+    4. merge_csv base retry → final.
+
+典型流程(v1 主实验 + retry 融合):base(backfilled)→ retry 跑 padded anomaly →
+merge 出 final。
 """
 import argparse
 import csv

@@ -1,15 +1,19 @@
 """
-离线建索引脚本。在跑 app 之前先跑一次这个，把 FAISS 索引缓存到磁盘。
+Offline FAISS index build script.
+离线 FAISS 索引构建脚本。
 
-用法：
+Run this once before launching the app so the FAISS index is cached to disk;
+the app then loads it in seconds on subsequent starts.
+启动 app 前跑一次,把 FAISS 索引缓存到磁盘,之后 app 启动秒级从 cache 加载。
+
+Usage:
     python scripts/build_index.py
-
-之后启动 app 会自动从 cache 加载，秒级启动。
 """
 import sys
 from pathlib import Path
 
-# 让 scripts 能 import 项目模块
+# Let `python scripts/build_index.py` import top-level project modules.
+# 让 `python scripts/build_index.py` 能 import 项目模块。
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import logging

@@ -1,14 +1,16 @@
 """
-统一生成 5 种 poison 集(spec §7.3 + §10)。
+Unified driver to generate all 5 poison sets.
+统一驱动脚本,生成 5 种 poison 集合。
 
-用法:
-    python scripts/generate_poisons.py --all              # 生成全部 5 种
+Usage:
+    python scripts/generate_poisons.py --all              # generate all 5 attacks
     python scripts/generate_poisons.py --attack semantic_mimicry
-    python scripts/generate_poisons.py --all --force      # 跳过缓存重新生成
-    python scripts/generate_poisons.py --pilot 5          # 只跑前 5 个 query
-    python scripts/generate_poisons.py --pilot 5 --dry-run  # stub LLM, 不烧 token
+    python scripts/generate_poisons.py --all --force      # ignore cache, regenerate
+    python scripts/generate_poisons.py --pilot 5          # process only the first 5 queries
+    python scripts/generate_poisons.py --pilot 5 --dry-run  # stub LLM, no token burn
 
 Step 7 stop point:
+    Use --pilot 5 to spot-check all 5 generators before running the full set.
     用 --pilot 5 跑完 5 种 generator,审阅产出再进全量。
 """
 import argparse
@@ -20,7 +22,8 @@ from pathlib import Path
 
 import yaml
 
-# 让 `python scripts/generate_poisons.py` 能 import 上层模块
+# Make `python scripts/generate_poisons.py` able to import top-level modules.
+# 让 `python scripts/generate_poisons.py` 能 import 上层模块。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config  # noqa: E402
@@ -55,7 +58,10 @@ GENERATORS = {
 
 
 def _make_generator_client(use_stub: bool):
-    """Build LLM client for the poison generator (spec §1.5: gpt-4o)."""
+    """
+    Build the LLM client used by the poison generator.
+    构造 poison generator 用的 LLM client。
+    """
     if use_stub:
         return StubLLMClient(model_name=config.POISON_GENERATOR_MODEL)
     return make_client({
@@ -66,7 +72,10 @@ def _make_generator_client(use_stub: bool):
 
 
 def _load_retriever() -> FAISSRetriever:
-    """Load the cached combined FAISS index (BASE + BACKGROUND)."""
+    """
+    Load the cached combined FAISS index (BASE + BACKGROUND).
+    加载缓存的 combined FAISS 索引(BASE + BACKGROUND)。
+    """
     embedder = Embedder(config.EMBEDDING_MODEL, device=config.EMBEDDING_DEVICE)
     retriever = FAISSRetriever(embedder)
     retriever.load(config.FAISS_CACHE, config.DOCS_CACHE)
@@ -84,7 +93,10 @@ def _save_poisons(poisons, output_file: Path):
 
 
 def _build_generator(attack_type: str, *, generator_client, retriever, variants_cache):
-    """Wire up the generator instance with the shared dependencies it needs."""
+    """
+    Wire the generator instance with the dependencies it needs.
+    给定 attack 类型,把依赖 wire 上去构造 generator 实例。
+    """
     cls = GENERATORS[attack_type]
     if attack_type == "keyword_stuffing":
         return cls(variants_cache=variants_cache)
@@ -110,6 +122,7 @@ def main():
     if not (args.all or args.attack):
         parser.error("必须指定 --all 或 --attack <name>")
 
+    # ---- 1. Budget check ----
     # ---- 1. 预算检查 ----
     if not args.dry_run and not args.no_budget_check:
         if args.pilot:
@@ -125,6 +138,7 @@ def main():
     elif args.dry_run:
         logger.info("--dry-run: 使用 stub LLM,跳过预算检查")
 
+    # ---- 2. Load data ----
     # ---- 2. 加载 data ----
     with open(config.QUERY_FILE, "r", encoding="utf-8") as f:
         queries = yaml.safe_load(f)
@@ -136,21 +150,25 @@ def main():
         queries = queries[: args.pilot]
         logger.info(f"--pilot {args.pilot}: 仅处理 {len(queries)} 条 query")
 
-    # 校验 query/target 配对
+    # Verify every query has a matching target entry.
+    # 校验 query/target 配对。
     missing_targets = [q["query_id"] for q in queries if q["query_id"] not in targets_by_id]
     if missing_targets:
         logger.error(f"queries missing target_yaml entries: {missing_targets}")
         sys.exit(2)
 
+    # ---- 3. Decide which attacks to run ----
     # ---- 3. 确定要跑哪些 attack ----
     attacks_to_run = [args.attack] if args.attack else list(GENERATORS.keys())
     logger.info(f"Attacks to run: {attacks_to_run}")
 
+    # ---- 4. Shared dependencies: LLM client / retriever / variants cache ----
     # ---- 4. 共享依赖:LLM client / retriever / variants cache ----
     generator_client = _make_generator_client(use_stub=args.dry_run)
     logger.info(f"Generator client: {generator_client!r}")
 
-    # variants cache 只有 keyword_stuffing 用
+    # variants cache is only used by keyword_stuffing.
+    # variants cache 只有 keyword_stuffing 用。
     variants_cache = {}
     if "keyword_stuffing" in attacks_to_run:
         variants_cache = precompute_all_variants(
@@ -160,7 +178,8 @@ def main():
             force=args.force,
         )
 
-    # retriever 只有 contradiction 用
+    # retriever is only used by contradiction.
+    # retriever 只有 contradiction 用。
     retriever = None
     if "contradiction" in attacks_to_run:
         try:
@@ -174,6 +193,7 @@ def main():
                 logger.warning("跳过 contradiction,继续其他 attack")
                 attacks_to_run = [a for a in attacks_to_run if a != "contradiction"]
 
+    # ---- 5. Run each attack ----
     # ---- 5. 跑每种 attack ----
     summary = {}
     for attack_type in attacks_to_run:
@@ -218,7 +238,8 @@ def main():
                 )
                 continue
 
-            # validate (warn-only,仍然保存,spec §7.6 末尾)
+            # validate (warn-only — still save, human reviewer decides whether to regen)
+            # 校验(warn-only,仍然保存,人工审查决定是否重生)
             issues = validate_poison(poison.to_dict(), attack_type)
             if issues:
                 violations_count += 1
@@ -243,6 +264,7 @@ def main():
             f"-> {output_file}"
         )
 
+    # ---- 6. Summary ----
     # ---- 6. 总结 ----
     print("\n=== Summary ===")
     for attack, stats in summary.items():

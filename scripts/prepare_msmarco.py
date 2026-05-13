@@ -1,17 +1,23 @@
 """
-ADJ-001: 从 HuggingFace 拉 MS MARCO v2.1,抽样 5000 篇 passages 作为背景集合。
+Pull MS MARCO v2.1 from HuggingFace and sample 5000 passages as background corpus.
+从 HuggingFace 拉 MS MARCO v2.1,抽样 5000 篇 passages 作为背景集合(ADJ-001)。
 
-用法:
+Usage:
     python scripts/prepare_msmarco.py
 
-输出:
-    data/corpus_static/msmarco_background.json (~2-3 MB,~5000 条 Document 记录)
+Output:
+    data/corpus_static/msmarco_background.json (~2-3 MB, ~5000 Document records)
 
-说明:
-- seed=42 保证可复现 (UQ 老师/助教复现实验时拿到同一组背景文档)。
-- MS MARCO v2.1 train split 在 HF 上约 3-5 GB,首次下载耗时取决于带宽。
-- HF 缓存默认在 ~/.cache/huggingface,二次运行从缓存读,秒级。
-- 不做主题 filter —— 杂乱内容反而支撑 "现实 RAG corpus 就是混杂的" 的 framing。
+Notes:
+- seed=42 for reproducibility (so course markers reproducing the experiment
+  get the same background set).
+- MS MARCO v2.1 train split is ~3-5 GB on HF; first download is bandwidth-bound.
+- HF caches under ~/.cache/huggingface; second run reads from cache and is fast.
+- No topic filtering — messy content actually supports the "real RAG corpora
+  are messy" framing.
+
+说明:seed=42 可复现;首次下载 3-5 GB,后续走 HF 缓存;不做主题 filter,杂乱内容
+反而支撑"现实 RAG corpus 就是混杂的"的 framing。
 """
 import sys
 import json
@@ -28,12 +34,16 @@ logger = logging.getLogger("prepare_msmarco")
 
 SEED = 42
 N_TARGET = 5000
-# 多抽一些,跳过空 passage 后仍能凑足 5000。MS MARCO 几乎没空 row,200 buffer 绰绰有余。
+# Oversample to absorb empty rows; MS MARCO has almost none, so 200 buffer is plenty.
+# 多抽一些,跳过空 passage 后仍能凑足 5000;MS MARCO 几乎没空 row,200 buffer 绰绰有余。
 N_OVERSAMPLE = N_TARGET + 200
 
 
 def _first_passage(passages_field) -> str:
-    """从 v2.1 的 passages 字段拿第一条非空 passage_text。"""
+    """
+    Return the first non-empty passage_text from a v2.1 passages field.
+    从 v2.1 的 passages 字段拿第一条非空 passage_text。
+    """
     if not isinstance(passages_field, dict):
         return ""
     texts = passages_field.get("passage_text") or []
@@ -44,7 +54,10 @@ def _first_passage(passages_field) -> str:
 
 
 def _make_title(content: str, n_words: int = 10) -> str:
-    """前 n 个词作为伪 title。"""
+    """
+    Use the first n words as a pseudo title.
+    用前 n 个词作为伪 title。
+    """
     words = content.split()
     return " ".join(words[:n_words]) if words else "[untitled]"
 

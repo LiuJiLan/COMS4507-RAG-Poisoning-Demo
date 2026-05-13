@@ -1,19 +1,28 @@
 """
-冒烟测试 (smoke test): 验证 config.AVAILABLE_LLMS 里所有 enabled 的 LLM
-通过 OpenRouter 都能调通,响应能被 reranker 解析。
+Smoke test for the OpenRouter LLM integration.
+OpenRouter LLM 集成的冒烟测试。
 
-不是研究实验,只是工程回归测试。用途:
-- OpenRouter 改 model 命名时(参考: 2026-05-12 anthropic/claude-3.5-sonnet 下线
-  → 改成 anthropic/claude-sonnet-4.5),跑一遍立刻定位哪个 ID 失效
-- 加新 LLM 到 AVAILABLE_LLMS 后,先冒烟再扩展实验
+Verifies that every enabled LLM in config.AVAILABLE_LLMS can be called via
+OpenRouter and that its response parses cleanly through the reranker.
+检查 config.AVAILABLE_LLMS 里所有 enabled 的 LLM 都能通过 OpenRouter 调通,
+且响应能被 reranker 解析。
 
-对每个 LLM 跑 1 次 clean + 1 次 poisoned rerank(共 2 次 API call),验证:
-1. API call 成功(无 404 / 401 / 500 / timeout)
-2. 响应能被 LLMReranker._parse_ranking 解析
-3. rerank 确实改了顺序(说明真的调了 LLM,不是 silent fallback 到原序)
+Not a research experiment — just an engineering regression check. Useful when:
+- OpenRouter renames a model (e.g. a deprecated ID is replaced) — run this and
+  the failing ID surfaces immediately.
+- Adding a new LLM to AVAILABLE_LLMS — smoke first before broadening experiments.
 
-预计 cost (4 个模型, 各 2 次 call): ~$0.02 USD
-预计耗时: 30-60s
+只是工程回归测试。OpenRouter 改 model 命名 / 加新 LLM 时跑一遍,立刻定位哪个 ID 失效。
+
+For each LLM it runs 1 clean + 1 poisoned rerank (2 API calls), verifying:
+1. The API call succeeds (no 404 / 401 / 5xx / timeout).
+2. The response parses via LLMReranker._parse_ranking.
+3. The rerank actually reorders (i.e. the LLM was reached, not a silent fallback).
+
+每个 LLM 跑 1 次 clean + 1 次 poisoned rerank(共 2 次 API call),验证:API 成功 /
+响应可解析 / 确实改了顺序(说明真调到了 LLM,不是 silent fallback)。
+
+Expected cost (4 models × 2 calls): ~$0.02 USD; runtime 30-60s.
 """
 import os
 import sys
@@ -21,7 +30,8 @@ import warnings
 import time
 from pathlib import Path
 
-# === 噪音抑制(必须在 HF / transformers / sentence-transformers 加载前)===
+# === Noise suppression — must precede HF / transformers / sentence-transformers imports ===
+# === 噪音抑制(必须在 HF / transformers / sentence-transformers 加载前) ===
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
 warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
@@ -46,7 +56,8 @@ from src.llm_clients import make_client
 
 
 # ======================================================================
-# 配置(固定 query + poison,只比较 LLM 维度)
+# Fixed query + poison set; only the LLM dimension varies.
+# 固定 query + poison,只比较 LLM 维度。
 # ======================================================================
 QUERY = "best Chinese restaurant in Brisbane"
 POISON_SET = "P_demo"
@@ -54,7 +65,8 @@ POISON_SET = "P_demo"
 
 
 def main() -> None:
-    # ---- 构建 pipeline 一次,后面只替换 reranker.llm ----
+    # ---- Build pipeline once; swap reranker.llm per iteration. ----
+    # ---- 构建 pipeline 一次,后面只替换 reranker.llm。 ----
     pipeline = RAGPipeline(
         embedding_model=config.EMBEDDING_MODEL,
         embedding_device=config.EMBEDDING_DEVICE,
@@ -87,7 +99,8 @@ def main() -> None:
             )
             elapsed = time.time() - t0
 
-            # 检查 rerank 确实改了顺序(否则可能是 silent fallback 到原序)
+            # Check that rerank actually reordered (otherwise may be a silent fallback).
+            # 检查 rerank 确实改了顺序(否则可能是 silent fallback 到原序)。
             k1_top_ids = [r.doc.doc_id for r in result.top_k1_clean[:config.TOP_K_2]]
             k2_ids = [r.doc.doc_id for r in result.top_k2_clean]
             reordered = k1_top_ids != k2_ids
