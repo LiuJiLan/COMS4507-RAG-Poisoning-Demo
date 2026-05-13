@@ -111,8 +111,8 @@ flowchart TB
     K2[/"top-k₂ 排名对比"/]:::ready
     ANS[/"自然语言答案"/]:::ready
 
-    %% ===== 最终产出（阻塞中） =====
-    EXP["真实实验<br/>30q × 5 poison × 4 LLM ≈ 600 组合"]:::wait
+    %% ===== 最终产出 =====
+    EXP["真实实验<br/>30q × 5 poison × 4 LLM = 600 组合<br/>v1.1 final 已完成"]:::ready
     REP["Report 写作"]:::wait
 
     %% 任务 → 输入 供给关系

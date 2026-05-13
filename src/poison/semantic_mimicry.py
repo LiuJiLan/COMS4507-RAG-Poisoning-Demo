@@ -1,7 +1,12 @@
 """
-SemanticMimicryGenerator — spec §4。
+SemanticMimicryGenerator.
+SemanticMimicryGenerator(语义模仿攻击)。
 
-framing-layer attack。LLM @ T=0.7,生成流畅自然散文,无可交叉验证细节。
+Framing-layer attack. LLM @ T=0.7 produces fluent, natural prose with no
+cross-verifiable details.
+Coverage: all 30 queries (applies to every target_type).
+
+framing 层攻击,LLM @ T=0.7,流畅自然散文,无可交叉验证细节。
 覆盖范围:全部 30 query(三种 target_type 都适用)。
 """
 import logging

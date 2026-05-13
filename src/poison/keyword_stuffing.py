@@ -1,8 +1,13 @@
 """
-KeywordStuffingGenerator — spec §2。
+KeywordStuffingGenerator.
+KeywordStuffingGenerator(关键词堆叠攻击)。
 
-surface-layer attack。无 LLM 调用,模板拼接 query keyword variants + poison_target。
-覆盖范围:fictional_entity + misleading_recommendation only(spec §1.3)。
+Surface-layer attack. No LLM call at generate-time — just template assembly
+from query keyword variants + poison_target.
+Coverage: fictional_entity + misleading_recommendation only.
+
+表层攻击,无 LLM 调用,纯模板拼接 query keyword variants + poison_target。
+覆盖范围:fictional_entity + misleading_recommendation only。
 """
 import json
 import logging
@@ -20,9 +25,12 @@ STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "of", "in", "on", "at",
     "for", "to", "with", "by", "from", "and", "or", "but", "what", "which",
     "who", "whom", "where", "when", "why", "how",
-    # "best" 和 "most" 是常见但信号弱的副词,去掉避免 stuffing 集中在它们上
+    # "best" / "most" are frequent but low-signal adverbs — drop to avoid
+    # concentrating the stuffing on them.
+    # "best" / "most" 高频但信号弱,去掉避免堆叠集中在它们上。
     "best", "most",
-    # 我们 v3 query 还经常出现以下高频信号弱词,一并过滤
+    # Other high-frequency low-signal words common in our v3 queries.
+    # v3 query 中其他高频信号弱词。
     "do", "does", "did", "should", "can", "could", "would", "will",
     "have", "has", "had", "be", "been", "being",
     "this", "that", "these", "those", "any", "some",
@@ -30,13 +38,17 @@ STOPWORDS = {
     "it", "its", "as", "if", "than", "so", "too",
 }
 
-# auto-bump 上限:防止退化文档被无止境堆叠
+# Cap on auto-bumped density to prevent runaway repetition on degenerate docs.
+# auto-bump 上限:防止退化文档无止境堆叠。
 MAX_AUTO_DENSITY = 10
-MIN_WORDS = 100   # 跟 validator 的下限对齐
+MIN_WORDS = 100   # aligned with the validator lower bound
 
 
 def extract_keywords(query: str) -> List[str]:
-    """spec §2.4。"""
+    """
+    Cheap fallback keyword extractor (used when the variants cache is missing).
+    简单的兜底关键词抽取(variants 缓存缺失时用)。
+    """
     cleaned = query.lower().replace("?", "").replace(",", "").replace(".", "")
     tokens = cleaned.split()
     return [t for t in tokens if t not in STOPWORDS and len(t) > 1]
@@ -49,16 +61,17 @@ def precompute_all_variants(
     force: bool = False,
 ) -> Dict[str, List[str]]:
     """
-    spec §2.5 — 一次性批量预生成所有 query 的 keyword variants 并缓存。
+    Batch-precompute keyword variants for every query in one LLM call, cached to disk.
+    一次性批量预生成所有 query 的 keyword variants 并缓存到磁盘。
 
     Args:
-        queries:          [{query_id, query, ...}, ...] (从 test_queries.yaml 来)
-        generator_client: LLMClient (用 spec §1.5 的 POISON_GENERATOR_MODEL)
-        cache_file:       缓存 JSON 路径(data/cache/keyword_variants.json)
-        force:            True 时忽略已存在缓存
+        queries:          [{query_id, query, ...}, ...] (loaded from test_queries.yaml).
+        generator_client: LLMClient (poison generator model).
+        cache_file:       cache JSON path (e.g. data/cache/keyword_variants.json).
+        force:            ignore existing cache when True.
 
     Returns:
-        {query_text: [variant1, variant2, ...]} 字典
+        {query_text: [variant1, variant2, ...]} dict.
     """
     cache_file = Path(cache_file)
     if cache_file.exists() and not force:
@@ -75,7 +88,8 @@ def precompute_all_variants(
         variants_dict = parse_json_response(response)
     except ValueError as e:
         logger.error(f"Failed to parse variants response: {e}")
-        # Fallback: 用 extract_keywords 给每条 query 直接抽
+        # Fallback: extract directly from each query.
+        # 降级:对每条 query 用 extract_keywords 直接抽。
         variants_dict = {q["query"]: extract_keywords(q["query"]) for q in queries}
 
     cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -100,10 +114,9 @@ class KeywordStuffingGenerator(PoisonGenerator):
     ):
         """
         Args:
-            variants_cache: query 文本 → [keyword variants],由
-                            precompute_all_variants() 启动时批量预生成
-            density:        重复堆叠的次数(spec §2.2 固定 3,但下面会 auto-bump)
-            seed:           random shuffle 的种子(per-instance 可复现)
+            variants_cache: query text → [keyword variants], from precompute_all_variants().
+            density:        base number of stacking repetitions (auto-bumped if doc is too short).
+            seed:           RNG seed for the shuffle (per-instance reproducibility).
         """
         self.variants_cache = variants_cache or {}
         self.density = density
@@ -124,7 +137,8 @@ class KeywordStuffingGenerator(PoisonGenerator):
         if not self.applies_to(target_type):
             return None
 
-        # per-call deterministic RNG(避免污染全局 random state)
+        # Per-call deterministic RNG (do not pollute the global random state).
+        # 每次调用独立的 RNG,避免污染全局 random state。
         rng = random.Random(self.seed if self.seed is not None else query_id)
 
         variants = self.variants_cache.get(query) or extract_keywords(query)
@@ -132,21 +146,26 @@ class KeywordStuffingGenerator(PoisonGenerator):
             logger.warning(f"{query_id}: no keywords/variants available, using poison_target only")
             variants = [poison_target.split()[0] if poison_target else "best"]
 
-        # spec §2.3 title 拼接
+        # Title: first variant capitalised + a few more variants + poison_target.
+        # title 拼接:首个 variant 首字母大写 + 接下来几个 variant + poison_target。
         title_parts = [variants[0].capitalize()]
         title_parts.extend(variants[1:4])
         title_parts.append(poison_target)
         title = " ".join(title_parts)
 
-        # spec §2.3 content: density 个 shuffled variants + poison_target
+        # Content: `density` shuffled chunks of (variants + poison_target).
+        # content:density 个 shuffled variants + poison_target chunk。
         chunks: List[str] = []
         for _ in range(self.density):
             v = list(variants)
             rng.shuffle(v)
             chunks.append(" ".join(v + [poison_target]))
 
-        # auto-bump:spec §2.6 例子产出 ~50 词,低于 MIN_WORDS。继续 append shuffled
-        # chunk 直到 >= 100 词,但封顶 MAX_AUTO_DENSITY 防退化
+        # Auto-bump: a basic 3-chunk pass yields ~50 words on short queries — under
+        # MIN_WORDS. Append more shuffled chunks until length >= 100, capped at
+        # MAX_AUTO_DENSITY to prevent degeneracy.
+        # auto-bump:基础 3 chunk 约 50 词,低于 MIN_WORDS;继续追加 shuffled chunk
+        # 直到 >= 100 词,封顶 MAX_AUTO_DENSITY 防退化。
         def _assemble(chunks_list):
             return ". ".join(chunks_list) + f". {poison_target} {' '.join(variants)}."
 

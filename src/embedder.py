@@ -1,8 +1,13 @@
 """
-Embedding 模型包装。底层是 sentence-transformers，做了如下封装：
-- 单例模式（避免多次加载模型）
-- 缓存（embed 过的文本不再重复 embed）
-- 统一的 numpy float32 输出（FAISS 要求）
+Embedding model wrapper around sentence-transformers.
+sentence-transformers 嵌入模型的薄包装。
+
+Adds three things on top of the upstream class:
+- Singleton — avoid reloading the model on every instantiation
+- In-memory cache — same text is not re-embedded
+- Uniform numpy float32 output (required by FAISS)
+
+封装三件事:单例、文本级缓存、统一 float32 输出(FAISS 要求)。
 """
 from typing import List, Union
 import numpy as np
@@ -13,19 +18,21 @@ logger = logging.getLogger(__name__)
 
 class Embedder:
     """
-    Embedder 是个对 SentenceTransformer 的薄包装。
-    
-    用法：
+    Thin wrapper over SentenceTransformer.
+    SentenceTransformer 的薄包装。
+
+    Usage:
         embedder = Embedder(model_name="sentence-transformers/all-MiniLM-L6-v2")
         vectors = embedder.encode(["text 1", "text 2", ...])
         # vectors.shape == (2, 384), dtype float32
     """
 
-    _instance = None  # 单例缓存
+    _instance = None  # singleton cache / 单例缓存
 
     def __new__(cls, model_name: str = None, device: str = None):
-        # 简单的单例：第一次实例化决定 model 和 device
-        # 后续调用直接返回同一个 instance
+        # Simple singleton: the first instantiation pins model + device;
+        # later calls return the same instance regardless of args.
+        # 单例:第一次实例化决定 model + device,后续调用忽略参数返回同一实例。
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
@@ -42,7 +49,10 @@ class Embedder:
         self._embed_cache: dict = {}  # text -> np.ndarray
 
     def _lazy_load(self):
-        """第一次用到才真正加载模型，避免启动慢"""
+        """
+        Load the model on first use to keep import-time cheap.
+        延迟加载,避免 import 时阻塞。
+        """
         if self._model is None:
             logger.info(f"Loading embedding model: {self.model_name} on {self.device}")
             from sentence_transformers import SentenceTransformer
@@ -60,24 +70,27 @@ class Embedder:
                use_cache: bool = True,
                show_progress: bool = False) -> np.ndarray:
         """
+        Encode text(s) into embedding vectors.
         把文本编码成向量。
-        
+
         Args:
-            texts: 单个字符串或字符串列表
-            use_cache: 是否使用内存缓存（同样的文本不会重复 embed）
-            show_progress: 是否显示进度条（大批量时有用）
-        
+            texts: a single string or a list of strings.
+            use_cache: reuse cached embeddings for previously-seen texts.
+            show_progress: show the sentence-transformers progress bar (helpful for large batches).
+
         Returns:
-            np.ndarray shape (N, dim), dtype float32
+            np.ndarray of shape (N, dim), dtype float32.
         """
         self._lazy_load()
 
-        # 统一成 list
+        # Normalize input to list.
+        # 输入统一成 list。
         single = isinstance(texts, str)
         if single:
             texts = [texts]
 
-        # 查 cache
+        # Cache lookup + encode only the misses.
+        # 查缓存,只 encode 未命中。
         if use_cache:
             uncached_idx = []
             uncached_texts = []
@@ -111,6 +124,9 @@ class Embedder:
 
     @property
     def dim(self) -> int:
-        """向量维度"""
+        """
+        Embedding vector dimension.
+        向量维度。
+        """
         self._lazy_load()
         return self._model.get_embedding_dimension()

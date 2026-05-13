@@ -1,5 +1,5 @@
 """
-环境验证脚本 —— 在动手把 refs/rag_poisoning_demo/ 铺到根目录之前先跑这个。
+环境健康检查脚本。
 
 逐项检查 Python / NumPy / PyTorch+CUDA / FAISS / Streamlit / PyYAML / python-dotenv,
 最后做一次 sentence-transformers + FAISS 的 end-to-end smoke test。
@@ -214,7 +214,7 @@ def main() -> int:
     print(f"\n{n_pass} passed, {n_fail} failed")
 
     if n_fail == 0:
-        print("\nAll checks passed. Safe to copy refs/rag_poisoning_demo/ to project root.")
+        print("\nAll checks passed. Environment is ready.")
         return 0
 
     # 失败的话给点提示

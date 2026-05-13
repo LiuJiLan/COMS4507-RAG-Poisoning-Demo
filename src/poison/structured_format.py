@@ -1,8 +1,13 @@
 """
-StructuredFormatGenerator — spec §3。
+StructuredFormatGenerator.
+StructuredFormatGenerator(结构化格式攻击)。
 
-surface-layer attack。LLM @ T=0.5,生成 markdown 结构 + 评分符号(无权威信号)。
-覆盖范围:fictional_entity + misleading_recommendation only(spec §1.3)。
+Surface-layer attack. LLM @ T=0.5 produces markdown structure + rating symbols,
+with no authority signals.
+Coverage: fictional_entity + misleading_recommendation only.
+
+表层攻击,LLM @ T=0.5 生成 markdown 结构 + 评分符号(无权威信号)。
+覆盖范围:fictional_entity + misleading_recommendation only。
 """
 import logging
 from typing import Optional

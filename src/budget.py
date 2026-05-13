@@ -1,14 +1,16 @@
 """
-OpenRouter 余额查询 + 预算检查(spec §7.5)。
+OpenRouter balance check + per-operation budget gating.
+OpenRouter 余额查询 + 单次操作预算检查。
 
-端点已在 P1b 验证存在(2026-05-13):
+OpenRouter exposes:
     GET https://openrouter.ai/api/v1/credits
-    → {"data": {"total_credits": 10.0, "total_usage": 0.041...}}
-    余额 = total_credits - total_usage
+    -> {"data": {"total_credits": <float>, "total_usage": <float>}}
+    balance = total_credits - total_usage
+OpenRouter 端点返回 total_credits / total_usage 两个 float,余额 = total - usage。
 
 CLI:
-    python -m src.budget                 # 仅查询余额
-    python -m src.budget --op pilot      # 估算 pilot 是否够
+    python -m src.budget                 # show balance only / 仅查询余额
+    python -m src.budget --op pilot      # estimate whether pilot is affordable / 估算 pilot 是否够
 """
 import argparse
 import logging
@@ -24,7 +26,8 @@ logger = logging.getLogger(__name__)
 CREDITS_ENDPOINT = "https://openrouter.ai/api/v1/credits"
 REQUEST_TIMEOUT = 15
 
-# 估算成本(USD)。来自 spec §12 + kickoff prompt。保守估计,跑前再校准。
+# Conservative USD cost estimates per operation. Recalibrate before each run.
+# 各操作的保守美元成本估算,跑前再校准。
 ESTIMATED_COSTS = {
     "generate_poisons_all":   1.00,
     "generate_poisons_one":   0.20,
@@ -36,7 +39,11 @@ ESTIMATED_COSTS = {
 
 
 def get_openrouter_balance() -> float:
-    """查询 OpenRouter 剩余余额(USD)。抛异常如果 key 缺失或网络失败。"""
+    """
+    Return remaining USD balance on OpenRouter. Raises if the key is missing
+    or the network call fails.
+    查 OpenRouter 余额(USD)。key 缺失或网络失败会抛异常。
+    """
     if not config.OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY not set in .env")
 
@@ -52,14 +59,15 @@ def get_openrouter_balance() -> float:
 
 def check_budget_or_warn(operation: str, assume_yes: bool = False) -> bool:
     """
-    检查余额。够 → 返回 True;严重不够 → False;紧张 → 交互式询问。
+    Check the balance. Plenty → True; clearly insufficient → False; tight → interactive prompt.
+    检查余额:够 → True;明显不够 → False;紧张 → 交互式询问。
 
     Args:
-        operation:   ESTIMATED_COSTS 的 key
-        assume_yes:  CLI --yes 时为 True,跳过 input() 提示(用于脚本/CI)
+        operation:  key from ESTIMATED_COSTS.
+        assume_yes: True skips the interactive prompt (CLI --yes / CI use).
 
     Returns:
-        True 表示可以继续,False 表示中断
+        True to continue, False to abort.
     """
     try:
         balance = get_openrouter_balance()

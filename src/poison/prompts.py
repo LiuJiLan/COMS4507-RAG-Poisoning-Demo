@@ -1,12 +1,12 @@
 """
-所有 prompt 模板集中存放(spec §2.5 / §3.4 / §4.4 / §5.4 / §6.4-6.5)。
-
-集中放在一个文件方便 review。每个模板带有它来自 spec 的章节号注释。
+All poison-generation prompt templates, gathered in one place for easy review.
+所有 poison 生成的 prompt 模板,集中放一个文件方便 review。
 """
 
 # ============================================================
 # Attack 1: keyword_stuffing
-# spec §2.5 — 一次性批量生成所有 query 的 variants
+# Batch-precompute keyword variants for every query in one LLM call.
+# 一次性批量生成所有 query 的 variants。
 # ============================================================
 
 VARIANTS_PROMPT = """For each query below, produce a list of 8-12 \
@@ -42,7 +42,8 @@ and punctuation):
 
 # ============================================================
 # Attack 2: structured_format
-# spec §3.4 — markdown 结构 + 评分符号(无权威信号)
+# Markdown structure + rating symbols (no authority signals).
+# Markdown 结构 + 评分符号(无权威信号)。
 # ============================================================
 
 STRUCTURED_FORMAT_PROMPT = """You are helping create test data for a RAG security research project.
@@ -82,7 +83,8 @@ Output strict JSON:
 
 # ============================================================
 # Attack 3: semantic_mimicry
-# spec §4.3-4.4 — style assignment + 流畅自然散文,无可交叉验证细节
+# Style assignment + fluent prose without cross-verifiable specifics.
+# style 分配 + 流畅自然散文,无可交叉验证细节。
 # ============================================================
 
 STYLE_DESCRIPTIONS = {
@@ -93,7 +95,10 @@ STYLE_DESCRIPTIONS = {
 
 
 def assign_style(category: str) -> str:
-    """spec §4.3 style 分配规则。"""
+    """
+    Map a query category to a writing style.
+    将 query category 映射到写作风格。
+    """
     if category == "restaurant":
         return "review"
     if category in ("university", "transport"):
@@ -143,7 +148,8 @@ Output strict JSON:
 
 # ============================================================
 # Attack 4: authority_spoof
-# spec §5.3-5.4 — 虚构权威 + 排名风格数字(避免可验证绝对数字)
+# Fake authority + ranking-style numbers (avoid verifiable absolute numbers).
+# 虚构权威 + 排名风格数字(避免可验证绝对数字)。
 # ============================================================
 
 AUTHORITY_CATEGORIES = {
@@ -174,7 +180,10 @@ AUTHORITY_CATEGORIES = {
 
 
 def assign_authority(category: str, rng) -> str:
-    """spec §5.3 权威类型分配。rng 是 random.Random 实例,保证可复现。"""
+    """
+    Pick an authority framing for the given category. rng = random.Random for reproducibility.
+    给定 category 抽一个权威框架。rng 是 random.Random 实例,保证可复现。
+    """
     options = AUTHORITY_CATEGORIES.get(category, ["fictional industry report"])
     return rng.choice(options)
 
@@ -230,7 +239,8 @@ Output strict JSON:
 
 # ============================================================
 # Attack 5: contradiction
-# spec §6.4-6.5 — 两步:fact extraction + contradiction generation
+# Two-step: fact extraction + contradiction generation.
+# 两步:fact extraction + contradiction generation。
 # ============================================================
 
 FACT_EXTRACTION_PROMPT = """The following documents were retrieved for the query: "{query}"

@@ -1,12 +1,15 @@
 """
-Poison generation 子包 — ADJ-002。
+Poison generation sub-package.
+Poison 生成子包。
 
-5 种 attack:
+Five attack types:
 - keyword_stuffing  (kw)  — surface, no LLM
 - structured_format (sf)  — surface, LLM @ T=0.5
 - semantic_mimicry  (sm)  — framing, LLM @ T=0.7
 - authority_spoof   (as)  — framing, LLM @ T=0.5
 - contradiction     (co)  — reasoning, LLM @ T=0.5 + retriever (two-step)
+
+5 种 attack:表层(kw/sf)、framing(sm/as)、reasoning 多步(co)。
 """
 
 from .base import PoisonGenerator, PoisonDocument

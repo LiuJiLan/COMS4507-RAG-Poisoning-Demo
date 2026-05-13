@@ -1,7 +1,12 @@
 """
-AuthoritySpoofGenerator — spec §5。
+AuthoritySpoofGenerator.
+AuthoritySpoofGenerator(虚构权威攻击)。
 
-framing-layer attack。LLM @ T=0.5,假权威 + 排名风格数字(避免可验证绝对数字)。
+Framing-layer attack. LLM @ T=0.5 fabricates an authority + ranking-style numbers,
+while avoiding verifiable absolute figures.
+Coverage: all 30 queries.
+
+framing 层攻击,LLM @ T=0.5,假权威 + 排名风格数字(避免可验证绝对数字)。
 覆盖范围:全部 30 query。
 """
 import logging
@@ -24,8 +29,8 @@ class AuthoritySpoofGenerator(PoisonGenerator):
     def __init__(self, generator_client=None, seed: int = None, **_ignored):
         """
         Args:
-            generator_client: LLMClient (openai/gpt-4o via OpenRouter)
-            seed:             权威类型抽样的 random seed(per-instance 可复现)
+            generator_client: LLMClient (poison generator model via OpenRouter).
+            seed:             RNG seed for authority-type sampling (per-instance reproducibility).
         """
         self.generator_client = generator_client
         self._rng = random.Random(seed)

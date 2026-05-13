@@ -4,8 +4,6 @@ Brisbane corpus diversity / template-leak self-check.
 跟 check_corpus.py 互补:check_corpus.py 验"形状"(schema / 字段 / 长度),
 本脚本验"内容"(URL 多样性 / 模板痕迹 / title 同质化)。
 
-验收口径见 staging/taskA_task1_review.md。
-
 Usage:
     python check_diversity.py                          # 默认读 ./brisbane_corpus.json
     python check_diversity.py path/to/corpus.json      # 指定路径
@@ -19,7 +17,7 @@ import sys
 from collections import Counter
 
 
-# ====== Thresholds (匹配 staging/taskA_task1_review.md 验收口径) ======
+# ====== Thresholds ======
 
 MIN_UNIQUE_WIKI_URLS = 30
 MAX_CHUNKS_PER_WIKI_URL = 3

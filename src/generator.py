@@ -1,10 +1,14 @@
 """
-LLM-as-generator。
+LLM-as-generator.
+LLM 答案生成器。
 
-输入：query + top-k_2 文档
-输出：自然语言答案
+Input:  query + top-k_2 documents.
+Output: a natural-language answer.
+输入 query + top-k_2 文档,输出自然语言答案。
 
-Generator 用一个固定模型（在 config.py 里定义），避免笛卡尔积。
+The generator uses a single fixed model (set in config.py) to avoid blowing up
+the experiment matrix.
+generator 用一个固定模型(在 config.py 里),避免 LLM × LLM 笛卡尔积爆炸。
 """
 from typing import List
 import logging
@@ -38,7 +42,10 @@ def _format_documents(docs: List[RetrievalResult]) -> str:
 
 
 class LLMGenerator:
-    """生成最终的人类可读答案"""
+    """
+    Produce the final human-readable answer.
+    生成最终的人类可读答案。
+    """
 
     def __init__(self, llm_client: LLMClient):
         self.llm = llm_client
