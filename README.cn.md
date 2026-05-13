@@ -152,7 +152,8 @@ flowchart TB
 - 🟩 UI 完整(Stage 1 / Stage 2 排名对比 + Stage 3 自然语言答案对比,Generator opt-in toggle,来源 tag `BG`/`BASE`/☣,~$0.02/run with Claude)
 - 🟩 调试工具链(`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py` / `prepare_msmarco.py` / `quick_plot.py`)
 - 🟩 **ADJ-002 poison 生成完整落地**(`src/poison/` 5 个 generator + `validate_poison()` + `src/budget.py` + `scripts/generate_poisons.py`)—— Step 1-8 全部完成,5 个 `P_*.json` 共 129 条入库,覆盖矩阵:keyword_stuffing 22 / structured_format 22 / semantic_mimicry 30 / authority_spoof 30 / contradiction 25;app.py 下拉框 glob 自动加载 + format_func 美化
-- 🟩 **实验 pipeline reproducibility 改造**:`run_experiment.py` 输出 CSV(含 displaced_doc_ids 列)+ `expr_<ts>.meta.json` sidecar(git hash + cmdline + config snapshot + 4 LLM model id),支持 `--retry-errors <csv>` flag 重跑失败行。Pilot 验证(25 combos / gpt-4o-mini / 96s / $0.04)k1 ASR 96% / k2 ASR 88%,5 种 attack 趋势已可观察
+- 🟩 **实验 pipeline reproducibility 改造**:`run_experiment.py` 输出 CSV(含 displaced_doc_ids 列)+ `expr_<ts>.meta.json` sidecar(git hash + cmdline + config snapshot + 4 LLM model id)+ `expr_<ts>.errors.log` + 自动 tee 的 `expr_<ts>.stdout.log`,支持 `--retry-errors <csv> --padded-threshold N` flag 重跑 anomaly 行 + `scripts/merge_csv.py` 融合多次跑批。OpenRouterClient 加 `provider_options` hint + 429/5xx retry-with-backoff(指数退避 4/8/16s)。
+- 🟩 **v1 主实验全量跑批 + v1.1 final 数据**:600 row(30 query × 5 attack × 4 LLM),`data/results/expr_v1_final.csv` + 2 张 ASR 图(by-attack / by-LLM × attack)。Gemini 因 OpenRouter `gemini-2.0-flash-001` deprecation 撞 RPM hard cap,切换到 `gemini-2.5-flash-lite` 重跑(Methodology caveat 已写)。**核心 finding**:Authority Spoof 4 LLM 通杀(97%)/ Contradiction LLM 差异最大 13pp(Claude 77 最 robust,Llama 90 最被骗)/ Keyword Stuffing 下降幅度最大(73→59,reranker 最能识破)
 
 ---
 
@@ -184,7 +185,8 @@ flowchart TB
 |---|---|---|---|
 | Claude 4.5 Sonnet | **1** | 0.7% | 1 次 padded 7 |
 | Llama 3.3 70B | 7 | 4.7% | 偶发 padded 1 / 极端 padded 9(raw='1') |
-| **Gemini 2.0 Flash** | 21 | **14%** | 主要是 OpenRouter 504/429 API fail(完全 fallback to dense),少量 padded |
+| **Gemini 2.0 Flash**(v1)| 21 | **14%** | 主要是 OpenRouter 504/429 API fail(完全 fallback to dense),少量 padded |
+| **Gemini 2.5 Flash Lite**(v1.1 final,model 切换后)| 3 | **2%** | 仅 LLM under-output(全 padded 5),0 API fail |
 | **GPT-4o-mini** | **27** | **18%** | 全是 LLM under-output(padded 1 / padded 5 居多,几次 padded 6) |
 
 含义:
@@ -224,3 +226,15 @@ flowchart TB
 **最终方案:换 model**。切到 `google/gemini-2.5-flash-lite`,同价位($0.10 in / $0.40 out per 1M),3 个 endpoint 全 healthy(uptime ≥99.78%),版本反而升级一代。**v1 主实验的 gemini 150 row 全部用新 model 重跑**,其他 3 个 LLM(claude / gpt4o / llama)的 v1 数据保留(它们没受影响)。
 
 ⚠️ **Report Methodology 必加 caveat**:实验跑批中途切换 gemini reranker 从 `gemini-2.0-flash-001` → `gemini-2.5-flash-lite`,原因是 OpenRouter capacity 收缩;同价位、同 provider(Google)、版本相邻,但严格说不是同一个 model。spec O1/O2 finding 的 "Gemini 2.0 Flash" 应改写为 "Gemini 2.5 Flash Lite (after v1 main run)"。
+
+**v1.1 final 数据替换结果(2026-05-13)**:用 `gemini-2.5-flash-lite` 重跑全部 gemini 150 row(`scripts\run_experiment.py --llms gemini`),merge 到 final CSV(`expr_v1_final.csv`)。**v1 CLEAN(剔除 fallback)预测 vs new model 实测对比**:
+
+| Attack | v1 CLEAN | new 2.5-lite | Δ |
+|---|---|---|---|
+| Authority Spoof | 96 | 97 | +1 |
+| Contradiction | 85 | 87 | +2 |
+| Keyword Stuffing | 54 | 57 | +3 |
+| Semantic Mimicry | 96 | 97 | +1 |
+| Structured Format | 76 | 80 | +4 |
+
+**±4pp 内变化,主 finding 全部稳健**:Claude 在 Contradiction 上独家 robust(77%,vs new Gemini 87 / GPT 83 / Llama 90,**13pp gap 保持**);Authority Spoof 4 LLM 通杀(全 97%)。Final CSV 的 Gemini 列 fallback artifact = 0,可直接进 report。
