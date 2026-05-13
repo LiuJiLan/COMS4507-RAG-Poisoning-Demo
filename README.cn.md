@@ -150,8 +150,9 @@ flowchart TB
 - 🟩 Pipeline 8 模块 + 4 LLM rerankers 通过 OpenRouter 集成，**real LLM baseline 已跑通**（O1 / O2 finding 见下）
 - 🟩 静态库分两层(ADJ-001):背景集合 MS MARCO 5000 + **基准集合 Brisbane 290 都已就绪**(`data/corpus_static/{msmarco_background.json, brisbane_corpus.json}`)
 - 🟩 UI 完整(Stage 1 / Stage 2 排名对比 + Stage 3 自然语言答案对比,Generator opt-in toggle,来源 tag `BG`/`BASE`/☣,~$0.02/run with Claude)
-- 🟩 调试工具链(`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py` / `prepare_msmarco.py`)
-- 🟩 **ADJ-002 poison 生成完整落地**(`src/poison/` 5 个 generator + `validate_poison()` + `src/budget.py` + `scripts/generate_poisons.py`)—— Step 1-7 + 全量生成全部完成,5 个 `P_*.json` 共 129 条入库,覆盖矩阵:keyword_stuffing 22 / structured_format 22 / semantic_mimicry 30 / authority_spoof 30 / contradiction 25
+- 🟩 调试工具链(`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py` / `prepare_msmarco.py` / `quick_plot.py`)
+- 🟩 **ADJ-002 poison 生成完整落地**(`src/poison/` 5 个 generator + `validate_poison()` + `src/budget.py` + `scripts/generate_poisons.py`)—— Step 1-8 全部完成,5 个 `P_*.json` 共 129 条入库,覆盖矩阵:keyword_stuffing 22 / structured_format 22 / semantic_mimicry 30 / authority_spoof 30 / contradiction 25;app.py 下拉框 glob 自动加载 + format_func 美化
+- 🟩 **实验 pipeline reproducibility 改造**:`run_experiment.py` 输出 CSV(含 displaced_doc_ids 列)+ `expr_<ts>.meta.json` sidecar(git hash + cmdline + config snapshot + 4 LLM model id),支持 `--retry-errors <csv>` flag 重跑失败行。Pilot 验证(25 combos / gpt-4o-mini / 96s / $0.04)k1 ASR 96% / k2 ASR 88%,5 种 attack 趋势已可观察
 
 ---
 

@@ -170,6 +170,7 @@ if page == "Dashboard":
             poison_name = st.selectbox(
                 "Poison set",
                 list(poison_options.keys()),
+                format_func=lambda x: x.removeprefix("P_").replace("_", " ").title(),
                 help="Which poison documents to inject.",
             )
             selected_poison = poison_options[poison_name]

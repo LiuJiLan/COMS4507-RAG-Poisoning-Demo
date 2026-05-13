@@ -22,7 +22,9 @@ pipeline.run_experiment(),把指标 row by row 写到 CSV。
 """
 import argparse
 import csv
+import json
 import os
+import subprocess
 import sys
 import time
 import warnings
@@ -41,12 +43,27 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import logging
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("run_experiment")
 
 from transformers.utils import logging as hf_logging
 hf_logging.set_verbosity_error()
 from huggingface_hub.utils import logging as hub_logging
 hub_logging.set_verbosity_error()
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+
+
+def attach_errors_log(out_path: Path) -> Path:
+    """Add a WARNING+ FileHandler to the root logger, writing to expr_<ts>.errors.log.
+
+    Captures everything that goes wrong (LLM under-output, API errors, parse failures,
+    run_one exceptions) so the run is reviewable without scrolling stdout.
+    """
+    err_path = out_path.with_suffix(".errors.log")
+    h = logging.FileHandler(err_path, encoding="utf-8", mode="w")
+    h.setLevel(logging.WARNING)
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+    logging.getLogger().addHandler(h)
+    return err_path
 
 import yaml
 import config
@@ -58,8 +75,8 @@ from src.llm_clients import make_client
 CSV_FIELDS = [
     "timestamp", "query_id", "query", "poison_set", "n_poison_docs",
     "reranker_llm", "reranker_model",
-    "k1_attack_success", "k1_poison_rank", "k1_n_poison", "k1_displaced", "k1_score_gap",
-    "k2_attack_success", "k2_poison_rank", "k2_n_poison", "k2_displaced", "k2_score_gap",
+    "k1_attack_success", "k1_poison_rank", "k1_n_poison", "k1_displaced", "k1_displaced_ids", "k1_score_gap",
+    "k2_attack_success", "k2_poison_rank", "k2_n_poison", "k2_displaced", "k2_displaced_ids", "k2_score_gap",
     "elapsed_sec", "error",
 ]
 
@@ -85,6 +102,75 @@ def load_all_poison_sets(poison_dir: Path) -> dict:
         except Exception as e:
             print(f"  WARN: skip {p.name} ({e})")
     return out
+
+
+def load_failed_combos(csv_path: Path, queries: list, poison_sets: dict, all_llms: set) -> list:
+    """读上次 CSV 的 error rows,重建 (query_item, (ps_name, ps_docs), llm_key) tuple 列表。"""
+    qid_to_item = {q.get("query_id"): q for q in queries}
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        combos = []
+        for r in reader:
+            if not r.get("error"):
+                continue
+            qid, ps_name, llm_key = r["query_id"], r["poison_set"], r["reranker_llm"]
+            q_item = qid_to_item.get(qid)
+            if q_item is None or ps_name not in poison_sets or llm_key not in all_llms:
+                print(f"  WARN: skip failed row (qid={qid}, ps={ps_name}, llm={llm_key}) — not resolvable")
+                continue
+            combos.append((q_item, (ps_name, poison_sets[ps_name]), llm_key))
+    return combos
+
+
+def git_hash() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).parent.parent, text=True
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def write_meta_sidecar(csv_path: Path, args, llm_keys, poison_sets, queries,
+                       n_combos: int, n_errors: int, total_elapsed: float) -> Path:
+    """跟 CSV 同名的 .meta.json sidecar,存复现需要的全部上下文。"""
+    meta_path = csv_path.with_suffix(".meta.json")
+    meta = {
+        "csv": csv_path.name,
+        "errors_log": csv_path.with_suffix(".errors.log").name,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "git_hash": git_hash(),
+        "cmd": " ".join(sys.argv),
+        "args": vars(args) | {"output": str(args.output) if args.output else None,
+                              "retry_errors": str(args.retry_errors) if args.retry_errors else None},
+        "config_snapshot": {
+            "EMBEDDING_MODEL": config.EMBEDDING_MODEL,
+            "EMBEDDING_DEVICE": config.EMBEDDING_DEVICE,
+            "TOP_K_1": config.TOP_K_1,
+            "TOP_K_2": config.TOP_K_2,
+            "QUERY_FILE": str(config.QUERY_FILE),
+            "POISON_DIR": str(config.POISON_DIR),
+            "FAISS_CACHE": str(config.FAISS_CACHE),
+            "rerankers": {
+                k: {"model": config.AVAILABLE_LLMS[k].get("model"),
+                    "provider": config.AVAILABLE_LLMS[k].get("provider")}
+                for k in llm_keys
+            },
+        },
+        "inputs": {
+            "n_queries": len(queries),
+            "poison_sets": {k: len(v) for k, v in poison_sets.items()},
+            "llm_keys": llm_keys,
+        },
+        "run": {
+            "n_combos": n_combos,
+            "n_errors": n_errors,
+            "elapsed_sec": round(total_elapsed, 2),
+        },
+    }
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    return meta_path
 
 
 def run_one(pipeline: RAGPipeline,
@@ -123,15 +209,21 @@ def run_one(pipeline: RAGPipeline,
             "k1_poison_rank": m1.poison_rank if m1.poison_rank is not None else "",
             "k1_n_poison": m1.n_poison_in_topk,
             "k1_displaced": len(m1.displaced_docs),
+            "k1_displaced_ids": "|".join(m1.displaced_docs),
             "k1_score_gap": f"{m1.score_gap:.4f}" if m1.score_gap is not None else "",
             "k2_attack_success": m2.poison_in_topk,
             "k2_poison_rank": m2.poison_rank if m2.poison_rank is not None else "",
             "k2_n_poison": m2.n_poison_in_topk,
             "k2_displaced": len(m2.displaced_docs),
+            "k2_displaced_ids": "|".join(m2.displaced_docs),
             "k2_score_gap": f"{m2.score_gap:.4f}" if m2.score_gap is not None else "",
             "elapsed_sec": f"{elapsed:.2f}",
         })
     except Exception as e:
+        logger.exception(
+            "run_one failed: query_id=%s poison=%s llm=%s",
+            query_item.get("query_id"), poison_set_name, llm_key,
+        )
         row["error"] = f"{type(e).__name__}: {e}"
         row["elapsed_sec"] = f"{time.time() - t0:.2f}"
 
@@ -148,6 +240,8 @@ def main() -> None:
                         help='只跑指定 LLM keys,例:--llms claude llama。默认 = config 里所有 enabled')
     parser.add_argument("--output", type=Path, default=None,
                         help="输出 CSV 路径(默认 data/results/expr_<timestamp>.csv)")
+    parser.add_argument("--retry-errors", type=Path, default=None, dest="retry_errors",
+                        help="读上次 CSV,只重跑 error 行(忽略 --limit / 笛卡尔积)")
     args = parser.parse_args()
 
     # ---- 加载输入 ----
@@ -177,10 +271,19 @@ def main() -> None:
         out_path = out_dir / f"expr_{stamp}.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ---- 笛卡尔积 ----
-    combos = list(product(queries, poison_sets.items(), llm_keys))
-    if args.limit:
-        combos = combos[: args.limit]
+    # ---- Errors log sidecar ----
+    errors_log = attach_errors_log(out_path)
+
+    # ---- 笛卡尔积 / retry-errors ----
+    if args.retry_errors:
+        combos = load_failed_combos(args.retry_errors, queries, poison_sets, set(llm_keys))
+        if not combos:
+            raise SystemExit(f"No resolvable error rows in {args.retry_errors}")
+        print(f"[retry] {len(combos)} failed combos loaded from {args.retry_errors.name}")
+    else:
+        combos = list(product(queries, poison_sets.items(), llm_keys))
+        if args.limit:
+            combos = combos[: args.limit]
 
     total = len(combos)
     avg_cost = 0.0 if args.stub else 0.003   # 4 模型平均
@@ -194,6 +297,7 @@ def main() -> None:
     print(f"  mode:          {'STUB (no API)' if args.stub else 'REAL LLM'}")
     print(f"  est. cost:     ~${est_cost:.2f} USD")
     print(f"  output:        {out_path}")
+    print(f"  errors log:    {errors_log.name}")
     print()
 
     # ---- Pipeline ----
@@ -234,14 +338,22 @@ def main() -> None:
     n_k1 = sum(1 for r in ok_rows if r["k1_attack_success"] is True)
     n_k2 = sum(1 for r in ok_rows if r["k2_attack_success"] is True)
 
+    # ---- Sidecar meta ----
+    meta_path = write_meta_sidecar(
+        out_path, args, llm_keys, poison_sets, queries,
+        n_combos=len(rows), n_errors=n_error, total_elapsed=total_elapsed,
+    )
+
     print()
     print("=" * 70)
     print(f"Done in {total_elapsed:.1f}s")
     print(f"Wrote {len(rows)} rows to {out_path}")
+    print(f"Wrote meta sidecar to {meta_path.name}")
+    print(f"Wrote errors log to {errors_log.name} (size {errors_log.stat().st_size} bytes)")
     print(f"  k1 attack success: {n_k1} / {len(ok_rows)}")
     print(f"  k2 attack success: {n_k2} / {len(ok_rows)}")
     if n_error:
-        print(f"  errors: {n_error}  (see 'error' column)")
+        print(f"  errors: {n_error}  (see 'error' column; re-run with --retry-errors {out_path.name})")
 
 
 if __name__ == "__main__":
