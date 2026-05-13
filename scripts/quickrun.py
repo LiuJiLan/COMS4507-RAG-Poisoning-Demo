@@ -58,7 +58,12 @@ from src.llm_clients import make_client
 # 改这里跑不同实验。
 # ======================================================================
 QUERY = "best Chinese restaurant in Brisbane"
-POISON_SET = "P_demo"        # matches data/poison_sets/<this>.json
+# P_demo is the dev-only dummy fixture in data/dev_fixtures/. Any other name
+# resolves to a real attack set in data/poison_sets/ (P_keyword_stuffing /
+# P_structured_format / P_semantic_mimicry / P_authority_spoof / P_contradiction).
+# P_demo 是开发用的 dummy fixture,放在 data/dev_fixtures/(刻意隔开正式
+# data/poison_sets/ 目录,避免被 app.py glob 误加载);其它名字解析到真 5 attack。
+POISON_SET = "P_demo"
 RERANKER_LLM = "claude"      # config.AVAILABLE_LLMS key: claude / gpt4o / gemini / llama
 USE_STUB_RERANKER = False    # True skips the real LLM; reranker uses stub (no API quota)
 INCLUDE_GENERATOR = False    # True runs the generator (extra LLM call for the answer)
@@ -102,11 +107,18 @@ def main() -> None:
         pipeline.initialize(base_docs + background_docs)
 
     # ---- Load poison set ----
-    poison_path = config.POISON_DIR / f"{POISON_SET}.json"
+    # P_demo lives outside data/poison_sets/ so the formal scripts (app.py glob,
+    # run_experiment.py defaults) don't pick it up; any other name resolves to
+    # the real attack set directory.
+    # P_demo 单独放 data/dev_fixtures/ 隔离开,正式脚本不会扫到;其它名字走真 attack 目录。
+    if POISON_SET == "P_demo":
+        poison_path = config.DATA_DIR / "dev_fixtures" / "P_demo.json"
+    else:
+        poison_path = config.POISON_DIR / f"{POISON_SET}.json"
     if not poison_path.exists():
         raise FileNotFoundError(
             f"Poison set not found: {poison_path}\n"
-            f"Available: {sorted(p.stem for p in config.POISON_DIR.glob('*.json'))}"
+            f"Available real attacks: {sorted(p.stem for p in config.POISON_DIR.glob('*.json'))}"
         )
     poison_docs = load_poison_set(poison_path)
 

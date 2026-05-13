@@ -17,6 +17,15 @@ Usage:
 """
 from __future__ import annotations
 
+# Windows-only preload: pyarrow must load BEFORE pandas / sentence_transformers,
+# otherwise check_sentence_transformers() segfaults (Win11 + Py3.10 + pyarrow 24 +
+# pandas 2.3 ABI clash). Same workaround as config.py — test.py intentionally does
+# not import config (decoupled env check), so it has to preload pyarrow itself.
+# Windows-only 预加载:同 config.py 的 workaround。test.py 故意不 import config
+# (解耦的环境巡检),所以得自己 preload pyarrow,否则 sentence-transformers 段会
+# 触发 pyarrow C 扩展的 access violation。
+import pyarrow  # noqa: F401 — preload, see comment above
+
 import sys
 import time
 import platform
