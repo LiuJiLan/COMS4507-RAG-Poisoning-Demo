@@ -82,6 +82,19 @@ AVAILABLE_LLMS = {
 GENERATOR_LLM = "claude"
 
 # ============================================================
+# Poison 生成(ADJ-002)
+# ============================================================
+# 用于 ADJ-002 5 种 attack 的 LLM(spec §1.5)。锁定到 gpt-4o,
+# 不要用 gpt-chat-latest(会自动更新,破坏实验复现性)。
+POISON_GENERATOR_MODEL = "openai/gpt-4o"
+
+# query_targets.yaml: 每条 query 的 poison_target + target_type(spec §1.1)
+QUERY_TARGETS_FILE = DATA_DIR / "query_targets.yaml"
+
+# keyword_stuffing 用的 variants 缓存(spec §2.5)
+KEYWORD_VARIANTS_CACHE = CACHE_DIR / "keyword_variants.json"
+
+# ============================================================
 # UI 配置
 # ============================================================
 APP_TITLE = "RAG Poisoning Visualizer"

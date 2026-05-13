@@ -91,15 +91,15 @@ flowchart TB
 ```mermaid
 flowchart TB
     %% ===== 待交付任务（虚线框，标 owner） =====
-    TA["任务A · 队友<br/>300 篇 Brisbane 语料"]:::task
+    TA["任务A · 队友<br/>290 篇 Brisbane 语料<br/>已交付"]:::ready
     TC["任务C · 队友<br/>30 query v3 已交付<br/>data/test_queries.yaml"]:::ready
-    TL["负责人本人<br/>Attack types + poison 模板"]:::task
+    TL["负责人本人<br/>Poison code 骨架 ready<br/>(等 task A v2 + pilot)"]:::partial
     TB["任务B · 队友<br/>Related Work survey"]:::task
 
     %% ===== RAG 输入（部分就绪） =====
     Q([User Query · 30 条就绪]):::ready
     BG[("背景集合<br/>MS MARCO 5000<br/>已就绪")]:::ready
-    BASE[("基准集合<br/>Brisbane ~300")]:::wait
+    BASE[("基准集合<br/>Brisbane 290<br/>已就绪")]:::ready
     PX[(污染集 P_x)]:::wait
 
     %% ===== Pipeline 代码（已就绪） =====
@@ -118,7 +118,7 @@ flowchart TB
     %% 任务 → 输入 供给关系
     TC -.->|交付| Q
     TA -.->|交付| BASE
-    TL -.->|设计| PX
+    TL -.->|代码 ready| PX
 
     %% Pipeline 主流
     Q --> EMB
@@ -140,17 +140,18 @@ flowchart TB
 
 **仍需交付**（按阻塞链优先级）：
 
-- 🟨 **任务A** — 300 篇 Brisbane 真实语料（**队友**）→ 接入基准集合 → 解锁真实实验
+- 🟩 **任务A** — 290 篇 Brisbane 真实语料已交付,入库 `data/corpus_static/brisbane_corpus.json`(5 类 topic 对齐 query category)
 - 🟩 **任务C** — 30 query 已交付(v3,GPT 协助修订)→ `data/test_queries.yaml`,5 类 category 均衡,attack_intent 全部含具体 false claim
-- 🟨 **Attack types + poison 模板设计**（**负责人本人**，**不等队友、可立即开始**）→ 接入 P_x → 解锁真实实验
+- 🟨 **Poison 集生成**（**负责人本人**，代码骨架 Step 1-6 已完成,**Step 7 pilot 待 task A v2 + 真实 LLM 跑** ≈ $0.10）→ 接入 P_x → 解锁真实实验
 - 🟨 **任务B** — Related Work survey（**队友**）→ 不阻塞实验，但阻塞 Report 写作
 
 **已就绪**（图中绿色节点）：
 
-- 🟩 Pipeline 8 模块 + 4 LLM rerankers 通过 OpenRouter 集成，dummy 数据上端到端跑通
-- 🟩 静态库分两层(ADJ-001):背景集合 MS MARCO 5000 篇已就绪(`scripts/prepare_msmarco.py` + `data/corpus_static/msmarco_background.json`),基准集合等任务 A
+- 🟩 Pipeline 8 模块 + 4 LLM rerankers 通过 OpenRouter 集成，**real LLM baseline 已跑通**（O1 / O2 finding 见下）
+- 🟩 静态库分两层(ADJ-001):背景集合 MS MARCO 5000 + **基准集合 Brisbane 290 都已就绪**(`data/corpus_static/{msmarco_background.json, brisbane_corpus.json}`)
 - 🟩 UI 完整(Stage 1 / Stage 2 排名对比 + Stage 3 自然语言答案对比,Generator opt-in toggle,来源 tag `BG`/`BASE`/☣,~$0.02/run with Claude)
 - 🟩 调试工具链(`quickrun.py` / `smoketest_llms.py` / `run_experiment.py` / `build_index.py` / `prepare_msmarco.py`)
+- 🟩 **ADJ-002 poison 生成代码骨架完整**(`src/poison/` 5 个 generator + `validate_poison()` + `src/budget.py` + `scripts/generate_poisons.py`)—— Step 1-6 实施完毕,5 个 sanity check 全过;等 task A v2 落地后跑 `--pilot 5` 验证真实输出
 
 ---
 
