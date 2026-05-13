@@ -1,5 +1,7 @@
 # RAG 投毒攻击 Demo
 
+> Also available in: [English](./README.md)
+
 本项目是 UQ COMS4507 课程小组项目,用于评估数据投毒攻击对 RAG 系统在 retrieval 与 rerank 阶段的影响。
 
 当前版本为 **v1.1 final**。主实验已完成:`30 queries × 5 attacks × 4 reranker LLMs = 600 rows`。实验数据与图表已纳入 Git 跟踪,位于 `data/results/expr_v1_final.*`。
