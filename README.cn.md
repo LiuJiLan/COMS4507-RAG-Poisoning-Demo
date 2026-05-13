@@ -211,3 +211,16 @@ flowchart TB
 - 剔除这 21 row 后(`df[df.reranker_padded_poisoned < 10 & df.reranker_padded_clean < 10]`),Gemini 真实 ASR 在 Keyword Stuffing 上 **60% → 54%**(-6pp),Structured Format 80% → 76%
 - 即:**Gemini 真实判断比 FULL 数据显示的略 robust,O2 "完全同意原序" 的强假设被部分推翻** — Gemini 在 surface attack 上确实会做一定判断
 - 但 13pp gap(Claude Contradiction 77% vs Llama 90%)远大于 Gemini 的 ~6pp fallback artifact,**主 finding 稳健**
+
+**根因:`gemini-2.0-flash-001` 正在 OpenRouter 下架**。Listing 上标注 **"Going away 2026-06-01"**,OpenRouter 在缩量,probe `/api/v1/models/.../endpoints`:
+
+| Endpoint tag | status | uptime_last_30m |
+|---|---|---|
+| `google-ai-studio` | 0(正常) | 99.85%(但实际撞 RPM hard cap)|
+| `google-vertex` | **-5(异常)** | 73.69% |
+
+实测:加 `openrouter_provider: {"order": ["google-ai-studio"]}` hint + `retry-with-backoff (4/8/16s)` 仍 100% 429 — google-ai-studio endpoint 的 RPM cap 也被收缩到无法支持 1 req/sec 的批量。
+
+**最终方案:换 model**。切到 `google/gemini-2.5-flash-lite`,同价位($0.10 in / $0.40 out per 1M),3 个 endpoint 全 healthy(uptime ≥99.78%),版本反而升级一代。**v1 主实验的 gemini 150 row 全部用新 model 重跑**,其他 3 个 LLM(claude / gpt4o / llama)的 v1 数据保留(它们没受影响)。
+
+⚠️ **Report Methodology 必加 caveat**:实验跑批中途切换 gemini reranker 从 `gemini-2.0-flash-001` → `gemini-2.5-flash-lite`,原因是 OpenRouter capacity 收缩;同价位、同 provider(Google)、版本相邻,但严格说不是同一个 model。spec O1/O2 finding 的 "Gemini 2.0 Flash" 应改写为 "Gemini 2.5 Flash Lite (after v1 main run)"。

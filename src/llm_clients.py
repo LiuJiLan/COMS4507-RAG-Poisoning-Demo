@@ -13,18 +13,29 @@ LLM 客户端。统一通过 OpenRouter 路由所有模型（Claude / GPT / Gemi
 from abc import ABC, abstractmethod
 import logging
 import re
+import time
 
 import requests
 
 logger = logging.getLogger(__name__)
 
+# Retry policy for OpenRouter transient errors (429 / 5xx).
+# 主实验跑 600 row × 2 call = 1200 request 时撞 RPM cap 概率高,加指数退避兜底。
+RETRY_HTTP_STATUSES = {429, 500, 502, 503, 504}
+RETRY_MAX_ATTEMPTS = 3       # 不算首次共 3 次额外尝试 = 总 4 次
+RETRY_BACKOFF_BASE = 4.0     # 4s → 8s → 16s
+
 
 class LLMClient(ABC):
     """所有 LLM client 的统一接口"""
 
-    def __init__(self, model_name: str, api_key: str = ""):
+    def __init__(self, model_name: str, api_key: str = "", provider_options: dict | None = None):
         self.model_name = model_name
         self.api_key = api_key
+        # OpenRouter `provider` sub-routing hint(只 OpenRouterClient 用):
+        # 例 {"order": ["google-ai-studio"], "allow_fallbacks": False}
+        # 强制 OpenRouter 走某个上游 endpoint,绕开不稳定的后端。
+        self.provider_options = provider_options
 
     @abstractmethod
     def complete(self, prompt: str, max_tokens: int = 1024,
@@ -91,27 +102,45 @@ class OpenRouterClient(LLMClient):
                 "OPENROUTER_API_KEY not set. Add it to .env in project root."
             )
 
-        try:
-            response = requests.post(
-                self.API_URL,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": self.HTTP_REFERER,
-                    "X-Title": self.APP_TITLE,
-                },
-                json={
-                    "model": self.model_name,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                },
-                timeout=self.REQUEST_TIMEOUT,
-            )
-            response.raise_for_status()
-        except requests.RequestException as e:
-            logger.error(f"OpenRouter request failed for {self.model_name}: {e}")
-            raise
+        body = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if self.provider_options:
+            body["provider"] = self.provider_options
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": self.HTTP_REFERER,
+            "X-Title": self.APP_TITLE,
+        }
+
+        for attempt in range(RETRY_MAX_ATTEMPTS + 1):
+            try:
+                response = requests.post(
+                    self.API_URL, headers=headers, json=body, timeout=self.REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+                break  # success
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else None
+                if status in RETRY_HTTP_STATUSES and attempt < RETRY_MAX_ATTEMPTS:
+                    wait = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    logger.warning(
+                        f"OpenRouter {self.model_name}: HTTP {status},"
+                        f" retry {attempt + 1}/{RETRY_MAX_ATTEMPTS} in {wait:.0f}s"
+                    )
+                    time.sleep(wait)
+                    continue
+                logger.error(f"OpenRouter request failed for {self.model_name}: {e}")
+                raise
+            except requests.RequestException as e:
+                # 网络层错误(connection error / timeout)— 不 retry,直接抛给上层 fallback
+                logger.error(f"OpenRouter request failed for {self.model_name}: {e}")
+                raise
 
         data = response.json()
         # OpenAI-compatible response 结构: choices[0].message.content
@@ -137,7 +166,11 @@ def make_client(llm_config: dict, use_stub: bool = False) -> LLMClient:
     provider = llm_config["provider"]
     if provider == "openrouter":
         from config import OPENROUTER_API_KEY
-        return OpenRouterClient(model_name=model, api_key=OPENROUTER_API_KEY)
+        return OpenRouterClient(
+            model_name=model,
+            api_key=OPENROUTER_API_KEY,
+            provider_options=llm_config.get("openrouter_provider"),
+        )
 
     raise ValueError(
         f"Unknown LLM provider: {provider!r}. Current design only supports "

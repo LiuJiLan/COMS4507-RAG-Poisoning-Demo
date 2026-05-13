@@ -77,8 +77,20 @@ AVAILABLE_LLMS = {
     },
     "gemini": {
         "provider": "openrouter",
-        "model": "google/gemini-2.0-flash-001",
+        # 2026-05-13 切换:v1 主实验用的 google/gemini-2.0-flash-001 在 OpenRouter
+        # listing 上标注 "Going away 2026-06-01",capacity 收缩导致 vertex endpoint
+        # uptime 73%、ai-studio endpoint 撞 RPM hard cap(retry-with-backoff 也救不回)。
+        # 切到 gemini-2.5-flash-lite:同价位($0.10 in / $0.40 out per 1M),
+        # 3 个 endpoint 全 healthy(uptime ≥99.78%),版本反而升级一代。
+        # Report Methodology 需 disclose model 切换。
+        "model": "google/gemini-2.5-flash-lite",
         "enabled": True,
+        # 保留 provider hint 作为保险(2.5-flash-lite 当前 3 endpoint 都健康,
+        # 但 pin 到 ai-studio 避免未来 vertex 抽风影响复现)。
+        "openrouter_provider": {
+            "order": ["google-ai-studio"],
+            "allow_fallbacks": False,
+        },
     },
     "llama": {
         "provider": "openrouter",

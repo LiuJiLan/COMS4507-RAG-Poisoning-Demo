@@ -73,6 +73,52 @@ def attach_errors_log(out_path: Path) -> Path:
     logging.getLogger().addHandler(h)
     return err_path
 
+
+class _Tee:
+    """Write to multiple text streams. 用于把 stdout/stderr 同时灌进 console + stdout.log。"""
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            try:
+                s.write(data)
+            except (ValueError, OSError):
+                pass
+        return len(data)
+
+    def flush(self):
+        for s in self.streams:
+            try:
+                s.flush()
+            except (ValueError, OSError):
+                pass
+
+    def isatty(self):
+        return False
+
+
+def attach_stdout_tee(out_path: Path):
+    """同时把 stdout/stderr 镜像到 expr_<ts>.stdout.log。
+
+    存在意义:backfill_padded_from_stdout.py 依赖 console 输出的 anchor 行 `[N/total]`
+    + inline WARNING/ERROR 顺序对齐到 CSV row。把它自动落盘,免去用户 copy-paste。
+
+    同步 rebind root logger 的 console StreamHandler,确保 logger 输出也进 stdout.log。
+    返回 (path, file_handle),caller 应在 main 末尾 close 文件。
+    """
+    stdout_path = out_path.with_suffix(".stdout.log")
+    f = open(stdout_path, "w", encoding="utf-8", buffering=1)  # line-buffered
+    sys.stdout = _Tee(sys.__stdout__, f)
+    sys.stderr = _Tee(sys.__stderr__, f)
+    # basicConfig 创建的 StreamHandler 持有的是 module 加载时的 sys.stderr 引用,
+    # 我们刚刚 reassign 了 sys.stderr,需要把它指过来。FileHandler 排除(它自己有
+    # baseFilename,流不一样)。
+    for h in logging.getLogger().handlers:
+        if type(h) is logging.StreamHandler:
+            h.stream = sys.stderr
+    return stdout_path, f
+
 import yaml
 import config
 from src.corpus import load_poison_set
@@ -181,6 +227,7 @@ def write_meta_sidecar(csv_path: Path, args, llm_keys, poison_sets, queries,
     meta = {
         "csv": csv_path.name,
         "errors_log": csv_path.with_suffix(".errors.log").name,
+        "stdout_log": csv_path.with_suffix(".stdout.log").name,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "git_hash": git_hash(),
         "cmd": " ".join(sys.argv),
@@ -321,8 +368,9 @@ def main() -> None:
         out_path = out_dir / f"expr_{stamp}.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # ---- Errors log sidecar ----
+    # ---- Errors log + stdout mirror sidecars ----
     errors_log = attach_errors_log(out_path)
+    stdout_log, _stdout_fh = attach_stdout_tee(out_path)
 
     # ---- 笛卡尔积 / retry-errors ----
     if args.retry_errors:
@@ -348,6 +396,7 @@ def main() -> None:
     print(f"  est. cost:     ~${est_cost:.2f} USD")
     print(f"  output:        {out_path}")
     print(f"  errors log:    {errors_log.name}")
+    print(f"  stdout log:    {stdout_log.name}")
     print()
 
     # ---- Pipeline ----
@@ -402,10 +451,13 @@ def main() -> None:
     print(f"Wrote {len(rows)} rows to {out_path}")
     print(f"Wrote meta sidecar to {meta_path.name}")
     print(f"Wrote errors log to {errors_log.name} (size {errors_log.stat().st_size} bytes)")
+    print(f"Wrote stdout mirror to {stdout_log.name}")
     print(f"  k1 attack success: {n_k1} / {len(ok_rows)}")
     print(f"  k2 attack success: {n_k2} / {len(ok_rows)}")
     if n_error:
         print(f"  errors: {n_error}  (see 'error' column; re-run with --retry-errors {out_path.name})")
+    _stdout_fh.flush()
+    _stdout_fh.close()
 
 
 if __name__ == "__main__":
