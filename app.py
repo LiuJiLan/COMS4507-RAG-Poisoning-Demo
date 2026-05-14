@@ -13,6 +13,7 @@ UI 结构:左 sidebar 导航 + 知识库信息;右 query 输入 + clean vs poiso
 """
 import os
 import sys
+import time
 import warnings
 from pathlib import Path
 
@@ -105,15 +106,98 @@ def get_pipeline():
     return pipeline
 
 
-def _source_tag(doc) -> str:
+def _row_decoration(doc) -> tuple[str, str]:
     """
-    Tag a doc with its corpus origin in the top-k list (ADJ-001).
-    Poison docs return empty so the ☣ marker handles them.
-    给 top-k 列表里的文档贴来源 tag(ADJ-001);poison 文档返回空,让 ☣ marker 处理。
+    Return (row_background_css, source_badge_html) for a top-k row, color-coded
+    by document origin (ADJ-001). RGBA backgrounds so both light/dark themes work.
+    返回 top-k 一行的 (背景 CSS, 来源 badge HTML),按来源着色(ADJ-001);
+    用 RGBA 半透明背景,亮/暗 Streamlit 主题都能显示。
+        - BG (MS MARCO 背景):浅绿
+        - BASE (Brisbane 基准):稍深绿
+        - POISON (注入文档):红底 + ☣ 标记 + 左侧红条
     """
     if doc.is_poison:
-        return ""
-    return " `BG`" if doc.source == "msmarco" else " `BASE`"
+        # Hazard palette tuned for Streamlit themes: amber/orange base instead
+        # of pure yellow, softer translucent red left border.
+        # Streamlit 主题专调的警示色:琥珀/橘代替纯黄,左条用更柔和的半透明红。
+        bg = "background: rgba(255,152,0,0.20); border-left: 3px solid rgba(198,40,40,0.55);"
+        badge = (
+            "<span style='background:#FF9800;color:#000;padding:1px 7px;"
+            "border-radius:3px;font-size:0.78em;font-weight:bold;"
+            "border:1px solid #000;'>&#9763; POISON</span>"
+        )
+    elif doc.source == "msmarco":
+        bg = "background: rgba(76,175,80,0.12);"
+        badge = (
+            "<span style='background:rgba(76,175,80,0.35);color:#1B5E20;padding:1px 6px;"
+            "border-radius:3px;font-size:0.75em;font-weight:600;'>BG</span>"
+        )
+    else:
+        bg = "background: rgba(46,125,50,0.28);"
+        badge = (
+            "<span style='background:#2E7D32;color:white;padding:1px 6px;"
+            "border-radius:3px;font-size:0.75em;font-weight:bold;'>BASE</span>"
+        )
+    return bg, badge
+
+
+def _topk_row_html(r, score_label: str = "score") -> str:
+    """
+    Return one top-k row as a self-contained HTML string. The card is built
+    with height:100% so that, when placed inside a CSS-grid cell with
+    align-items:stretch, it expands to the row's tallest cell. r=None
+    renders an empty placeholder that still participates in grid sizing.
+    返回单行 top-k 的自包含 HTML(不调 st.markdown)。卡片用 height:100%,
+    放在 align-items:stretch 的 CSS grid cell 里会自动撑满该行最高 cell。
+    r=None 渲染一个空占位 cell,仍参与 grid 布局。
+    """
+    if r is None:
+        return "<div></div>"
+    _bg, _badge = _row_decoration(r.doc)
+    return (
+        f"<div style='{_bg} padding:8px 12px; border-radius:4px; "
+        f"min-height:64px; height:100%; box-sizing:border-box; "
+        f"display:flex; flex-direction:column; justify-content:flex-start;'>"
+        f"<div><b>{r.rank}.</b> {r.doc.title}</div>"
+        f"<div style='margin-top:auto; padding-top:4px;'>{_badge}"
+        f"<small style='opacity:0.7; margin-left:8px;'>"
+        f"{score_label}: {r.score:.4f}</small></div>"
+        f"</div>"
+    )
+
+
+def _render_topk_pair(clean_list, poisoned_list,
+                      score_label: str = "score") -> None:
+    """
+    Render clean vs poisoned top-k as ONE CSS grid block so the two cells
+    in the same grid row stretch to equal height. This avoids the bottom-
+    padding mismatch you'd otherwise see when one side's title wraps to a
+    new line and the other side doesn't.
+    把 clean / poisoned 双栏整张表用单个 CSS grid 渲染:同一 grid row 的
+    两 cell 自动等高,避免一侧 title wrap / 另一侧不 wrap 时底部 padding 不齐。
+    """
+    col_l, col_r = st.columns(2)
+    with col_l:
+        st.markdown("#### Without poison")
+    with col_r:
+        st.markdown("#### With poison")
+
+    k = max(len(clean_list), len(poisoned_list))
+    parts = [
+        "<div style='display:grid; grid-template-columns:1fr 1fr; "
+        "gap:6px 16px; align-items:stretch;'>"
+    ]
+    for i in range(k):
+        parts.append(_topk_row_html(
+            clean_list[i] if i < len(clean_list) else None,
+            score_label,
+        ))
+        parts.append(_topk_row_html(
+            poisoned_list[i] if i < len(poisoned_list) else None,
+            score_label,
+        ))
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 
 @st.cache_data
@@ -179,6 +263,7 @@ if page == "Dashboard":
             help="The user's question.",
         )
 
+    poison_name: str | None = None
     with col_attack:
         poison_options = load_poison_options()
         if not poison_options:
@@ -200,77 +285,79 @@ if page == "Dashboard":
             "Reranker model",
             rerank_options,
             index=0,
-            help="Which LLM does the listwise reranking. 'stub' skips the API call and preserves dense retriever order (useful for debugging without spending quota).",
+            help="Which LLM does the listwise reranking. 'stub' skips the API "
+                 "call and preserves dense retriever order (useful for debugging "
+                 "without spending quota).",
         )
-        use_generator = st.checkbox(
-            "Include generator",
-            value=False,
-            key="include_generator",
-            help=(
-                f"Run the LLM generator on top-k₂ docs to produce a natural-language "
-                f"answer (clean vs poisoned, shown as Stage 3). Adds 2 LLM calls per "
-                f"run (~$0.02 with {config.GENERATOR_LLM})."
-            ),
-        )
-        st.caption("+2 calls, ~$0.02")
 
-    run_button = st.button("Run experiment", type="primary", use_container_width=False)
+    # ----- Form-drift detection: clear stale results when any input changes -----
+    # ----- 表单漂移检测:任一 input 变化时清掉上一次结果(避免显示误导)-----
+    current_key = (query, poison_name, selected_reranker)
+    if (
+        "last_run_key" in st.session_state
+        and st.session_state.last_run_key != current_key
+    ):
+        st.session_state.pop("last_result", None)
+        st.session_state.pop("last_run_key", None)
+        st.session_state.pop("generator_cache", None)
 
-    # ----- Run pipeline -----
+    run_button = st.button("Run experiment", type="primary",
+                           use_container_width=False)
+
+    # ----- Run pipeline (only writes session_state; rendering is below) -----
+    # ----- 运行 pipeline:只写 session_state,渲染统一在下方读 -----
     if run_button and selected_poison:
         # Swap in the chosen reranker client (cached pipeline keeps embedder /
         # retriever / FAISS index; only the LLM client is replaced per run).
-        # 替换选定的 reranker client(cache 的 pipeline 保留 embedder / retriever / FAISS,
-        # 每次只换 LLM client)。
+        # 替换选定的 reranker client(cache 的 pipeline 保留 embedder / retriever
+        # / FAISS,每次只换 LLM client)。
         if selected_reranker == "stub":
             pipeline.reranker.llm = StubLLMClient()
         else:
             pipeline.reranker.llm = make_client(config.AVAILABLE_LLMS[selected_reranker])
 
-        # Swap generator client only when the user opts in. When the toggle is OFF
-        # we leave the cached pipeline's generator alone (run_experiment skips it).
-        # 只在用户勾选 generator 时替换;不勾选时保留缓存中的 generator,run_experiment 跳过它。
-        if use_generator:
-            pipeline.generator.llm = make_client(config.AVAILABLE_LLMS[config.GENERATOR_LLM])
+        spin_msg = (
+            f"Running retrieval comparison "
+            f"(reranker: {selected_reranker})..."
+        )
 
-        spin_msg = f"Running retrieval comparison (reranker: {selected_reranker}"
-        if use_generator:
-            spin_msg += f", generator: {config.GENERATOR_LLM}"
-        spin_msg += ")..."
-
-        with st.spinner(spin_msg):
+        # st.status: spinner while running; auto-marks ✗ if the block raises.
+        # Stage 3 is now its own toggle below — never run as part of this call.
+        # st.status:运行时转圈;块内抛异常自动变 ✗。
+        # Stage 3 不再在这里跑,由下方独立 toggle 触发。
+        _t_start = time.perf_counter()
+        with st.status(spin_msg, expanded=False) as _status:
             result = pipeline.run_experiment(
                 query=query,
                 poison_docs=selected_poison,
-                include_generator=use_generator,
+                include_generator=False,
+            )
+            _elapsed = time.perf_counter() - _t_start
+            _status.update(
+                label=f"✓ Pipeline complete in {_elapsed:.1f}s",
+                state="complete",
             )
 
-        # ----- Display: k_1 stage (dense retriever) -----
+        st.session_state.last_result = result
+        st.session_state.last_run_key = current_key
+        # Reset generator cache on every new run (run_key just changed anyway).
+        # 每次新 run 重置 generator cache(run_key 已变)。
+        st.session_state.generator_cache = {}
+
+    elif run_button:
+        st.error("No poison set selected.")
+
+    # ----- Render: stage 1 + 2 (+ optional stage 3) from session_state -----
+    # ----- 渲染区:从 session_state 读 stage 1 + 2(可选 stage 3)-----
+    if "last_result" in st.session_state:
+        result = st.session_state.last_result
+
         st.markdown(f"## Stage 1: Dense retrieval (top-{config.TOP_K_1})")
-        col_clean, col_poison = st.columns(2)
+        _render_topk_pair(
+            result.top_k1_clean, result.top_k1_poisoned,
+            score_label="score",
+        )
 
-        with col_clean:
-            st.markdown("#### Without poison")
-            for r in result.top_k1_clean:
-                st.markdown(
-                    f"**{r.rank}.**{_source_tag(r.doc)} {r.doc.title}  \n"
-                    f"&nbsp;&nbsp;&nbsp;<small>score: {r.score:.4f}</small>",
-                    unsafe_allow_html=True,
-                )
-
-        with col_poison:
-            st.markdown("#### With poison")
-            for r in result.top_k1_poisoned:
-                marker = " ☣" if r.doc.is_poison else ""
-                color = "#A32D2D" if r.doc.is_poison else "inherit"
-                st.markdown(
-                    f"<span style='color: {color}'>"
-                    f"**{r.rank}.**{marker}{_source_tag(r.doc)} {r.doc.title}</span>  \n"
-                    f"&nbsp;&nbsp;&nbsp;<small>score: {r.score:.4f}</small>",
-                    unsafe_allow_html=True,
-                )
-
-        # Metrics row for k_1
         st.markdown("**Stage 1 metrics**")
         m1 = result.metrics_k1
         c1, c2, c3 = st.columns(3)
@@ -281,7 +368,6 @@ if page == "Dashboard":
 
         st.markdown("---")
 
-        # ----- Display: k_2 stage (LLM reranker) -----
         st.markdown(f"## Stage 2: LLM reranker (top-{config.TOP_K_2})")
         if selected_reranker == "stub":
             st.caption("Reranker: **STUB** — no API call, order = dense retriever output")
@@ -289,29 +375,11 @@ if page == "Dashboard":
             _model_name = config.AVAILABLE_LLMS[selected_reranker]["model"]
             st.caption(f"Reranker: `{_model_name}` via OpenRouter")
 
-        col_clean2, col_poison2 = st.columns(2)
-        with col_clean2:
-            st.markdown("#### Without poison")
-            for r in result.top_k2_clean:
-                st.markdown(
-                    f"**{r.rank}.**{_source_tag(r.doc)} {r.doc.title}  \n"
-                    f"&nbsp;&nbsp;&nbsp;<small>orig score: {r.score:.4f}</small>",
-                    unsafe_allow_html=True,
-                )
+        _render_topk_pair(
+            result.top_k2_clean, result.top_k2_poisoned,
+            score_label="orig score",
+        )
 
-        with col_poison2:
-            st.markdown("#### With poison")
-            for r in result.top_k2_poisoned:
-                marker = " ☣" if r.doc.is_poison else ""
-                color = "#A32D2D" if r.doc.is_poison else "inherit"
-                st.markdown(
-                    f"<span style='color: {color}'>"
-                    f"**{r.rank}.**{marker}{_source_tag(r.doc)} {r.doc.title}</span>  \n"
-                    f"&nbsp;&nbsp;&nbsp;<small>orig score: {r.score:.4f}</small>",
-                    unsafe_allow_html=True,
-                )
-
-        # Metrics row for k_2
         st.markdown("**Stage 2 metrics**")
         m2 = result.metrics_k2
         c1, c2, c3 = st.columns(3)
@@ -320,22 +388,81 @@ if page == "Dashboard":
                   m2.poison_rank if m2.poison_rank is not None else "—")
         c3.metric("Docs displaced", len(m2.displaced_docs))
 
-        # ----- Display: Stage 3 (LLM generator answer) -----
-        if use_generator:
-            st.markdown("---")
+        # ----- Stage 3 toggle (decoupled from stage 1+2 to avoid re-running them) -----
+        # Toggling does NOT re-run stage 1+2. First time ON for this run_key:
+        # call generator and cache the answers. Subsequent toggles read cache.
+        # Stage 3 toggle 与主 run 解耦:切换它不会重跑 stage 1+2。
+        # 当前 run_key 首次 ON 时调 generator 并缓存;后续切换直接读 cache。
+        st.markdown("---")
+        show_stage3 = st.toggle(
+            "Show generated answer (Stage 3)",
+            value=False,
+            key="show_stage3",
+            help=(
+                f"Run the LLM generator on top-k₂ docs to produce a natural-"
+                f"language answer (clean vs poisoned). **Generator model is "
+                f"fixed** to `{config.AVAILABLE_LLMS[config.GENERATOR_LLM]['model']}` "
+                f"— it does NOT change with the reranker selection above "
+                f"(avoids reranker × generator cartesian product; see README). "
+                f"Adds 2 LLM calls (~$0.02). Cached per (query, poison set, "
+                f"reranker) — flipping OFF then back ON is free."
+            ),
+        )
+
+        if show_stage3:
+            generator_cache = st.session_state.setdefault("generator_cache", {})
+            run_key = st.session_state.last_run_key
+
+            if run_key not in generator_cache:
+                pipeline.generator.llm = make_client(
+                    config.AVAILABLE_LLMS[config.GENERATOR_LLM]
+                )
+                _gt = time.perf_counter()
+                with st.status(
+                    f"Generating answers via {config.GENERATOR_LLM}...",
+                    expanded=False,
+                ) as _gs:
+                    ans_clean = pipeline.generator.generate(
+                        query, result.top_k2_clean,
+                    )
+                    ans_poisoned = pipeline.generator.generate(
+                        query, result.top_k2_poisoned,
+                    )
+                    _ge = time.perf_counter() - _gt
+                    _gs.update(
+                        label=f"✓ Answers generated in {_ge:.1f}s",
+                        state="complete",
+                    )
+                generator_cache[run_key] = (ans_clean, ans_poisoned)
+
+            ans_clean, ans_poisoned = generator_cache[run_key]
+
             st.markdown("## Stage 3: Generated answer")
             _gen_model = config.AVAILABLE_LLMS[config.GENERATOR_LLM]["model"]
-            st.caption(f"Generator: `{_gen_model}` via OpenRouter")
+            st.caption(
+                f"Generator: `{_gen_model}` via OpenRouter · "
+                f"**Fixed across all runs** — independent of the reranker "
+                f"selection (avoids reranker × generator cartesian product)."
+            )
+            if selected_reranker == config.GENERATOR_LLM:
+                # Reranker and generator share the same model in this run by
+                # coincidence — surface it so the audience doesn't conclude
+                # the generator follows the reranker selection.
+                # 本次 reranker 与 generator 恰好同模型 — 主动提示,避免观众误
+                # 以为 generator 跟随 reranker 选择。
+                st.info(
+                    f"ℹ️ Note: reranker and generator are the **same model** "
+                    f"this run ({_gen_model}). This is a coincidence — switch "
+                    f"the reranker to a different LLM above to see the two "
+                    f"roles use distinct models."
+                )
             col_clean3, col_poison3 = st.columns(2)
             with col_clean3:
                 st.markdown("#### Without poison")
-                st.markdown(result.answer_clean or "_(empty)_")
+                st.markdown(ans_clean or "_(empty)_")
             with col_poison3:
                 st.markdown("#### With poison")
-                st.markdown(result.answer_poisoned or "_(empty)_")
-
-    elif run_button:
-        st.error("No poison set selected.")
+                st.markdown(ans_poisoned or "_(empty)_")
 
 elif page == "Attack Module":
     st.info("TODO: Attack design / custom poison upload. Coming soon.")
