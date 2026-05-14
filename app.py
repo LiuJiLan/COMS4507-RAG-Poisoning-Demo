@@ -227,19 +227,11 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    st.markdown("---")
-    st.markdown("### Pipeline status")
-    pipeline = get_pipeline()
-    _docs = pipeline.retriever.documents
-    n_background = sum(1 for d in _docs if d.source == "msmarco")
-    n_base = sum(1 for d in _docs if d.source != "msmarco" and not d.is_poison)
-    st.metric("Background docs", n_background)
-    st.metric("Base docs", n_base)
-    st.metric("Poison docs", pipeline.retriever.n_poison)
-
-    st.markdown("---")
-    st.caption(f"Embedding: `{config.EMBEDDING_MODEL.split('/')[-1]}`")
-    st.caption(f"Top-K1: {config.TOP_K_1} → Top-K2: {config.TOP_K_2}")
+# Pipeline must be initialized at page level — used by Dashboard for retriever
+# stats, reranker / generator client swapping, and run_experiment dispatch.
+# pipeline 必须在 page-level 初始化:Dashboard 多处使用(retriever 统计、reranker
+# / generator client 替换、run_experiment 调度)。
+pipeline = get_pipeline()
 
 
 # ============================================================
@@ -252,6 +244,32 @@ if page == "Dashboard":
         "Demonstrates how poison documents can hijack the retrieval ranking "
         "of a RAG system. Compare *clean* vs *poisoned* knowledge bases."
     )
+
+    # ----- Knowledge base (built into the FAISS index at startup) -----
+    # ----- 知识库(启动时构建进 FAISS 索引)-----
+    st.markdown("## Knowledge base")
+    _docs = pipeline.retriever.documents
+    _n_background = sum(1 for d in _docs if d.source == "msmarco")
+    _n_base = sum(1 for d in _docs
+                  if d.source != "msmarco" and not d.is_poison)
+    _n_poison_sets = len(load_poison_options())
+
+    kb_c1, kb_c2, kb_c3 = st.columns(3)
+    kb_c1.metric("Background docs (BG)", _n_background)
+    kb_c2.metric("Base docs (BASE)", _n_base)
+    kb_c3.metric(
+        "Poison sets available", _n_poison_sets,
+        help="How many poison sets you can pick below. Poison documents "
+             "are injected into the FAISS index ONLY during a Run experiment "
+             "and removed afterwards — 'active poison' in the index is "
+             "always 0 outside a run.",
+    )
+    st.caption(
+        f"Embedding: `{config.EMBEDDING_MODEL.split('/')[-1]}` · "
+        f"Top-K1: {config.TOP_K_1} → Top-K2: {config.TOP_K_2}"
+    )
+
+    st.markdown("---")
 
     # ----- Inputs -----
     col_input, col_attack, col_reranker = st.columns([3, 2, 2])
