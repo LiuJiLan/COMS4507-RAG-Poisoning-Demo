@@ -249,6 +249,8 @@ A browser tab opens at `http://127.0.0.1:8000` automatically. The interactive da
 - The Database box in the top row shows three lifecycle timers (first build / last inject poison / last remove poison) and shimmers in different colors for each phase.
 - A Stage 3 toggle reveals the generator's natural-language answer for clean vs poisoned (~$0.02/run, cached per `(ts, reranker)`).
 
+![Dashboard screenshot — Query/Database row at the top, full 5-stage pipeline (Embedding → FAISS Vector Retrieval → LLM Reranker → LLM Generator) with clean vs poisoned columns side by side, Stage 3 toggle enabled](docs/dashboard.png)
+
 ### 6. Development Smoke Test
 
 ```bash

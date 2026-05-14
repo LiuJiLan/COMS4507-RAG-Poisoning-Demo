@@ -249,6 +249,8 @@ python -m web.main
 - 顶部 Database 框显示三个生命周期 timer(first build / last inject poison / last remove poison),不同阶段以不同颜色 shimmer。
 - Stage 3 toggle 打开 generator,显示 clean / poisoned 的自然语言答案(约 `$0.02/run`,按 `(ts, reranker)` 缓存)。
 
+![Dashboard 截图 — 顶部 Query / Database row,下接完整 5 stage pipeline(Embedding → FAISS Vector Retrieval → LLM Reranker → LLM Generator),clean 与 poisoned 两列并列,Stage 3 toggle 已打开](docs/dashboard.png)
+
 ### 6. 开发期 smoke test
 
 ```bash
