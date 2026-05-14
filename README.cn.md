@@ -238,12 +238,16 @@ python scripts/build_index.py
 ### 5. 启动 demo UI
 
 ```bash
-streamlit run app.py
+python -m web.main
 ```
 
-在 UI 中可以通过下拉框切换 5 套 poison set。界面会并列展示 clean 与 poisoned 两侧的 top-k₁、top-k₂ 与自然语言答案。
+浏览器会自动打开 `http://127.0.0.1:8000`。交互式 dashboard(FastAPI + 纯 vanilla JS,无额外打包步骤)展示:
 
-Generator 为 opt-in,预计成本约为 `$0.02/run`。
+- 实时 pipeline 时间线:query → embedding → FAISS top-k₁ → LLM reranker → top-k₂ →(可选)LLM generator,每个 stage 通过 Server-Sent Events 同步动画。
+- 每个 stage 都以 clean / poisoned 双列并列呈现。
+- 下拉框切换 5 套 poison set;另一个下拉框切换 reranker LLM;再次切回之前看过的 reranker 命中前端缓存,免去 API 调用。
+- 顶部 Database 框显示三个生命周期 timer(first build / last inject poison / last remove poison),不同阶段以不同颜色 shimmer。
+- Stage 3 toggle 打开 generator,显示 clean / poisoned 的自然语言答案(约 `$0.02/run`,按 `(ts, reranker)` 缓存)。
 
 ### 6. 开发期 smoke test
 

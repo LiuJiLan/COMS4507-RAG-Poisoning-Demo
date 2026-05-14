@@ -1,0 +1,643 @@
+/* =========================================================
+   RAG Poisoning Visualizer — dashboard.css
+   Migrated verbatim from notes/webui/mockup.html <style> block
+   (the visual-truth source built in v2_007). Tokens align with
+   README.md mermaid block:
+     - input    (blue)  : Query / Database / cylinders
+     - internal (gray)  : Embedding / Search / Reranker / Generator stages
+     - display  (yellow): top-k ranking lists / answer panels
+   Bottom .ref-divider + reference block + opt-tag CSS from the
+   mockup are intentionally dropped (those were picker scaffolding,
+   not part of the production page).
+   ========================================================= */
+
+:root {
+  --input-fill:   #dbeafe;
+  --input-stroke: #1d4ed8;
+  --input-text:   #1e3a8a;
+  --internal-fill:   #f3f4f6;
+  --internal-stroke: #4b5563;
+  --internal-text:   #1f2937;
+  --display-fill:   #fde68a;
+  --display-stroke: #b45309;
+  --display-text:   #78350f;
+  --page-bg:    #ffffff;
+  --page-text:  #1f2937;
+  --muted-text: #6b7280;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "Helvetica Neue", Arial, "PingFang SC",
+               "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--page-bg);
+  color: var(--page-text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 24px 80px;
+}
+
+/* ---------- Top page-title bar ---------- */
+.top-bar {
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.top-bar-inner {
+  padding: 14px 24px;
+  display: flex;
+  justify-content: center;
+}
+.top-bar-title {
+  font-size: 1.8em;
+  font-weight: 800;
+  color: var(--page-text);
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+
+/* Sub-line lives OUTSIDE .top-bar, under the bar's border-bottom. */
+.top-bar-sub-line {
+  text-align: center;
+  padding: 8px 24px 14px;
+}
+.top-bar-sub {
+  font-size: 0.92em;
+  color: var(--muted-text);
+}
+
+/* ---------- Top row: Query (left) + Database (right) ---------- */
+.top-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.top-row > .query-box    { flex: 1; min-width: 0; }
+.top-row > .database-box { flex: 2; min-width: 0; }
+
+.query-box {
+  background: var(--input-fill);
+  border: 1.5px solid var(--input-stroke);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+.query-title {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--input-text);
+}
+.query-input {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--page-text);
+  width: 100%;
+}
+
+.database-box {
+  background: var(--input-fill);
+  border: 1.5px solid var(--input-stroke);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Anchor for .pv-stage-corner absolute positioning so the
+     stage_build timer lands in the top-right of the box. */
+  position: relative;
+}
+.database-title {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--input-text);
+  text-align: center;
+}
+.database-inner-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  justify-content: center;
+  /* Leave room for the absolutely-positioned .db-timers block in the
+     top-right (~3 lines of mono text). Otherwise the right-side sub-
+     frame (Poison set) crowds against or under the timer numbers. */
+  margin-top: 24px;
+}
+
+.kb-sub {
+  border: 1.5px solid var(--input-stroke);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #eef2ff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kb-sub.static-sub { flex: 0 0 auto; }
+.kb-sub.poison-sub { flex: 0 0 auto; align-items: center; }
+.kb-sub-label {
+  font-size: 0.86em;
+  font-weight: 700;
+  color: var(--input-text);
+  text-align: center;
+}
+.cyl-row {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  align-items: flex-start;
+}
+.cyl-with-cap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- Cylinder icon ---------- */
+.cylinder {
+  position: relative;
+  width: 86px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.cyl-top,
+.cyl-bottom {
+  width: 86px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(100,150,200,0.40);
+  border: 1.5px solid var(--input-stroke);
+  box-sizing: border-box;
+}
+.cyl-body {
+  width: 86px;
+  height: 56px;
+  background: rgba(100,150,200,0.20);
+  border-left:  1.5px solid var(--input-stroke);
+  border-right: 1.5px solid var(--input-stroke);
+  margin-top: -8px;
+  margin-bottom: -8px;
+  box-sizing: border-box;
+}
+.cyl-num {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-weight: 800;
+  font-size: 1.05em;
+  color: var(--input-text);
+  pointer-events: none;
+}
+.cyl-cap {
+  font-size: 0.78em;
+  text-align: center;
+  color: var(--input-text);
+  line-height: 1.25;
+}
+
+.poison-select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+/* ---------- Run cluster: SVG aggregator + green run button ---------- */
+.run-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.run-connectors {
+  width: 100%;
+  height: 64px;
+  display: block;
+}
+.conn-line {
+  stroke: var(--input-stroke);
+  stroke-width: 1.5;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.run-button {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 24px;
+  border: 1.5px solid #2E7D32;
+  border-radius: 8px;
+  background: #43a047;
+  color: #ffffff;
+  cursor: pointer;
+  margin-top: -6px;
+}
+.run-button:hover  { background: #388e3c; }
+.run-button:disabled {
+  background: #9ca3af;
+  border-color: #6b7280;
+  cursor: not-allowed;
+}
+
+/* ---------- Stage arrow (between stages) ---------- */
+.stage-arrow {
+  width: 2px;
+  height: 32px;
+  background: var(--internal-stroke);
+  margin: 10px auto 0;
+  position: relative;
+}
+.stage-arrow::after {
+  content: "";
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--internal-stroke);
+}
+
+/* ---------- Pipeline stage frame ---------- */
+.pv-stage {
+  position: relative;
+  border: 2px solid rgba(128,128,128,0.5);
+  border-radius: 12px;
+  padding: 22px 18px 16px;
+  background: #ffffff;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.pv-stage-corner {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  font-size: 0.78em;
+  color: var(--muted-text);
+}
+.pv-stage-title {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--internal-text);
+}
+.pv-stage-caption {
+  font-size: 0.82em;
+  opacity: 0.75;
+}
+
+/* ---------- Two-column compare (clean | poisoned) ----------
+   Row-interleaved CSS Grid: disp-item / disp-answer / cmp-col-head
+   are ALL direct grid children. Same grid row → equal height for the
+   two cells (mockup-true behaviour; matches app.py's _render_topk_pair
+   single-grid trick).  align-items:stretch is grid default but stated
+   explicitly for readability. */
+.cmp-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+  row-gap: 6px;
+  width: 100%;
+  align-items: stretch;
+}
+
+/* `hidden` attribute alone is overridden by `display: grid`; this rule
+   restores the expected "remove from layout" semantics. Used by the
+   generator stage when the Stage 3 toggle is OFF. */
+.cmp-cols[hidden] {
+  display: none;
+}
+
+.cmp-col-head {
+  font-size: 0.74em;
+  font-weight: 700;
+  color: var(--muted-text);
+  text-align: center;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* disp-item is a grid cell; stretch to row height so the taller of
+   the (clean, poisoned) pair pulls the shorter one up to match. */
+.cmp-cols > .disp-item {
+  height: 100%;
+}
+
+/* ---------- Top-k row item ---------- */
+.disp-item {
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 0.82em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 58px;
+  color: #1f2937;
+}
+.disp-item .di-line1 b { font-weight: 800; margin-right: 4px; }
+.disp-item .di-line2 {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.85em;
+  color: #4b5563;
+}
+.disp-item .di-badge {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.78em;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.disp-item.bg     { background: rgba(76,175,80,0.12); }
+.disp-item.bg .di-badge {
+  background: rgba(76,175,80,0.35);
+  color: #1B5E20;
+}
+.disp-item.base   { background: rgba(46,125,50,0.28); }
+.disp-item.base .di-badge {
+  background: #2E7D32;
+  color: #ffffff;
+}
+.disp-item.poison {
+  background: rgba(255,152,0,0.20);
+  border-left: 3px solid rgba(198,40,40,0.55);
+}
+.disp-item.poison .di-badge {
+  background: #FF9800;
+  color: #000000;
+  border: 1px solid #000000;
+}
+
+/* ---------- Generator answer panel ---------- */
+.disp-answer {
+  border: 1px solid #e5e7eb;
+  border-left-width: 4px;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 0.82em;
+  min-height: 90px;
+  line-height: 1.45;
+  color: #1f2937;
+  background: #ffffff;
+}
+.disp-answer.clean {
+  background: #e8f5e9;
+  border-color: #a5d6a7;
+  border-left-color: #2E7D32;
+}
+.disp-answer.poisoned {
+  background: #fef2f2;
+  border-color: #fecaca;
+  border-left-color: #c0392b;
+}
+
+/* ---------- Inline widget on the stage-arrow line ---------- */
+.arrow-widget {
+  width: fit-content;
+  margin: 6px auto 0;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.arrow-widget-label {
+  font-size: 0.78em;
+  color: var(--muted-text);
+}
+.arrow-widget select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+/* ---------- CSS-only toggle switch (Streamlit's switch in mockup) ---------- */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+}
+.toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.toggle .switch {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  background: #d1d5db;
+  border-radius: 999px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.toggle .switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: left 0.15s;
+}
+.toggle input[type="checkbox"]:checked + .switch {
+  background: var(--input-stroke);
+}
+.toggle input[type="checkbox"]:checked + .switch::after {
+  left: 16px;
+}
+
+/* =========================================================
+   Three-state machine
+     PENDING  — locked / inactive (gray fill, faded)
+     RUNNING  — gray-blue shimmer sweep (right → left)
+     COMPLETE — default look (no extra class needed)
+   Database box is special: it stays input-blue in
+   pending/complete; only the running shimmer is blue-tinted.
+   Inner items (disp-item / disp-answer) follow the same
+   pending/running treatment so the whole stage sweeps in sync.
+   ========================================================= */
+@keyframes stage-shimmer {
+  0%   { background-position:  220% 0; }
+  100% { background-position: -220% 0; }
+}
+
+.pv-stage.stage-pending {
+  opacity: 0.55;
+  background: #f3f4f6;
+  border-color: rgba(128,128,128,0.35);
+}
+.pv-stage.stage-running {
+  background: linear-gradient(90deg,
+    rgba(120,120,120,0.05) 0%,
+    rgba(120,120,120,0.22) 50%,
+    rgba(120,120,120,0.05) 100%);
+  background-size: 220% 100%;
+  animation: stage-shimmer 1.6s linear infinite;
+}
+.database-box.stage-running {
+  background: linear-gradient(90deg,
+    rgba(29,78,216,0.08) 0%,
+    rgba(29,78,216,0.28) 50%,
+    rgba(29,78,216,0.08) 100%);
+  background-size: 220% 100%;
+  animation: stage-shimmer 1.6s linear infinite;
+}
+
+/* Database lifecycle states — distinct from the generic .pv-stage
+   three-state machine so the user can read the Database's role at
+   a glance: warming (init, blue shimmer, same as .stage-running),
+   injecting (red shimmer = adding poison), poisoned (amber static
+   = index currently contains poison, sits like this through search
+   + rerank), rebuilding (green shimmer = removing poison / rebuild),
+   default (blue tint = clean BASE+BG). */
+.database-box.stage-warming {
+  background: linear-gradient(90deg,
+    rgba(29,78,216,0.08) 0%,
+    rgba(29,78,216,0.28) 50%,
+    rgba(29,78,216,0.08) 100%);
+  background-size: 220% 100%;
+  animation: stage-shimmer 1.6s linear infinite;
+}
+.database-box.stage-injecting {
+  background: linear-gradient(90deg,
+    rgba(220,38,38,0.10) 0%,
+    rgba(220,38,38,0.32) 50%,
+    rgba(220,38,38,0.10) 100%);
+  background-size: 220% 100%;
+  animation: stage-shimmer 1.6s linear infinite;
+  border-color: rgba(220,38,38,0.7);
+}
+.database-box.stage-poisoned {
+  background: rgba(255,193,7,0.30);
+  border-color: rgba(217,119,6,0.85);
+}
+.database-box.stage-rebuilding {
+  background: linear-gradient(90deg,
+    rgba(34,197,94,0.10) 0%,
+    rgba(34,197,94,0.32) 50%,
+    rgba(34,197,94,0.10) 100%);
+  background-size: 220% 100%;
+  animation: stage-shimmer 1.6s linear infinite;
+  border-color: rgba(22,163,74,0.7);
+}
+
+/* Three-row timer block in Database top-right. Mono-aligned via grid
+   so the colons stack vertically. */
+.db-timers {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.74em;
+  color: var(--muted-text);
+}
+.db-timer-row {
+  display: contents;
+}
+.db-timer-row[hidden] {
+  display: none;
+}
+.db-timer-label { text-align: right; }
+.db-timer-value {
+  text-align: right;
+  font-weight: 700;
+  color: var(--input-text);
+  min-width: 5ch;
+}
+
+.stage-pending .disp-item,
+.stage-pending .disp-answer {
+  background: #e5e7eb;
+  color: #9ca3af;
+  border-left-color: transparent;
+}
+.stage-pending .disp-item .di-badge {
+  background: #d1d5db;
+  color: #6b7280;
+  border-color: transparent;
+}
+
+.stage-running .disp-item,
+.stage-running .disp-answer {
+  background: linear-gradient(90deg,
+    rgba(120,120,120,0.08) 0%,
+    rgba(120,120,120,0.30) 50%,
+    rgba(120,120,120,0.08) 100%);
+  background-size: 220% 100%;
+  animation: stage-shimmer 1.6s linear infinite;
+  color: transparent;
+  border-left-color: transparent;
+}
+.stage-running .disp-item .di-badge {
+  visibility: hidden;
+}
+
+.stage-running .pv-stage-corner  { color: #6b7280; }
+.stage-complete .pv-stage-corner { color: #2E7D32; }
+.stage-pending .pv-stage-corner  { visibility: hidden; }
+
+/* =========================================================
+   Error banner (appears when /api/run/stream emits an error event)
+   ========================================================= */
+.error-banner {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #c0392b;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 12px 0;
+  font-size: 0.88em;
+  color: #7f1d1d;
+}
+.error-banner.hidden { display: none; }

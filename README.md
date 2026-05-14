@@ -238,12 +238,16 @@ python scripts/build_index.py
 ### 5. Launch the Demo UI
 
 ```bash
-streamlit run app.py
+python -m web.main
 ```
 
-In the UI, the dropdown menu can be used to switch between the 5 poison sets. The interface displays the clean and poisoned top-k₁, top-k₂, and natural language answers side by side.
+A browser tab opens at `http://127.0.0.1:8000` automatically. The interactive dashboard (FastAPI + vanilla JS, no extra build step) shows:
 
-The generator is opt-in, with an estimated cost of about `$0.02/run`.
+- A live pipeline timeline: query → embedding → FAISS top-k₁ → LLM reranker → top-k₂ → (optional) LLM generator, with each stage animating as it runs (Server-Sent Events).
+- Clean vs poisoned columns rendered side by side at every stage.
+- A drop-down to switch between the 5 poison sets, and a second drop-down to pick the reranker LLM. Re-selecting a previously seen reranker is a free cache hit — no extra API call.
+- The Database box in the top row shows three lifecycle timers (first build / last inject poison / last remove poison) and shimmers in different colors for each phase.
+- A Stage 3 toggle reveals the generator's natural-language answer for clean vs poisoned (~$0.02/run, cached per `(ts, reranker)`).
 
 ### 6. Development Smoke Test
 

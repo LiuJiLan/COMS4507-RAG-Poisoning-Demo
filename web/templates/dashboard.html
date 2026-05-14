@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ app_title }}</title>
+<link rel="stylesheet" href="/static/dashboard.css" />
+</head>
+<body>
+
+<!-- ===== Top page-title bar =====
+     Title sits centered inside the sticky bar; sub-line is moved
+     OUTSIDE the bar so it appears under the thin border-bottom
+     divider, also centered.
+     标题居中放 sticky bar 内;副标题挪到细线之下,也居中。 -->
+<header class="top-bar">
+  <div class="top-bar-inner">
+    <span class="top-bar-title">RAG Poisoning Visualizer</span>
+  </div>
+</header>
+<div class="top-bar-sub-line">
+  <span class="top-bar-sub">Clean vs Poisoned Retrieval &middot; COMS4507 at UQ</span>
+</div>
+
+<div class="page">
+
+  <!-- Initial state pushed from the server. dashboard.js reads it on load
+       (constants + dropdown lists + KB counts) — avoids a separate
+       /api/meta fetch round-trip just to populate static UI. -->
+  <script id="meta-data" type="application/json">{{ meta_json | safe }}</script>
+
+  <!-- Error banner — surfaces /api/run/stream "error" events. -->
+  <div id="error-banner" class="error-banner hidden"></div>
+
+  <!-- ===== Top row: Query + Database ===== -->
+  <section class="top-row">
+
+    <section class="query-box">
+      <div class="query-title">Query</div>
+      <input type="text" class="query-input" id="query"
+             value="{{ default_query }}" />
+    </section>
+
+    <section class="database-box" data-stage-id="stage_build">
+      <!-- Three-row timer block (mono-aligned, top-right corner).
+           Each row toggles visibility based on JS-tracked client state:
+             - first build database: only after THIS client observed
+               an init build (elapsed != null from /api/init/stream).
+               A page reload clears it back to hidden because state is
+               in JS memory only — matches the user's "undefined → hide"
+               contract for that row.
+             - last inject poison: filled on stage_build phase=inject
+               complete, replaced on each subsequent inject.
+             - last remove poison: filled on stage_build phase=rebuild
+               complete, replaced on each subsequent rebuild.
+           三行 timer(mono 对齐,右上角),根据 client 内存状态显示/隐藏。 -->
+      <div class="db-timers">
+        <div class="db-timer-row" id="db-timer-first-build" hidden>
+          <span class="db-timer-label">first build database:</span>
+          <span class="db-timer-value" id="db-timer-first-build-value">—</span>
+        </div>
+        <div class="db-timer-row" id="db-timer-inject" hidden>
+          <span class="db-timer-label">last inject poison:</span>
+          <span class="db-timer-value" id="db-timer-inject-value">—</span>
+        </div>
+        <div class="db-timer-row" id="db-timer-rebuild" hidden>
+          <span class="db-timer-label">last remove poison:</span>
+          <span class="db-timer-value" id="db-timer-rebuild-value">—</span>
+        </div>
+      </div>
+      <div class="database-title">Database</div>
+
+      <div class="database-inner-row">
+        <div class="kb-sub static-sub">
+          <div class="kb-sub-label">Static knowledge base S</div>
+          <div class="cyl-row">
+            <div class="cyl-with-cap">
+              <div class="cyl-cap">background<br>(MS MARCO)</div>
+              <div class="cylinder">
+                <div class="cyl-top"></div>
+                <div class="cyl-body"></div>
+                <div class="cyl-bottom"></div>
+                <div class="cyl-num">{{ n_background }}</div>
+              </div>
+            </div>
+            <div class="cyl-with-cap">
+              <div class="cyl-cap">base<br>(Brisbane)</div>
+              <div class="cylinder">
+                <div class="cyl-top"></div>
+                <div class="cyl-body"></div>
+                <div class="cyl-bottom"></div>
+                <div class="cyl-num">{{ n_base }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kb-sub poison-sub">
+          <div class="kb-sub-label">Poison set</div>
+          <select class="poison-select" id="poison">
+            {% for opt in poison_sets %}
+            <option value="{{ opt.key }}">{{ opt.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="cylinder">
+            <div class="cyl-top"></div>
+            <div class="cyl-body"></div>
+            <div class="cyl-bottom"></div>
+            <div class="cyl-num" id="poison-cyl-num">{{ default_poison_short }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </section>
+
+  <!-- ===== Run cluster: SVG aggregator + green run button ===== -->
+  <div class="run-cluster">
+    <svg class="run-connectors" viewBox="0 0 100 60" preserveAspectRatio="none"
+         aria-hidden="true">
+      <path class="conn-line" d="M 17 0 C 17 38, 50 38, 50 60" />
+      <path class="conn-line" d="M 55 0 C 55 38, 50 38, 50 60" />
+      <path class="conn-line" d="M 65 0 C 65 38, 50 38, 50 60" />
+      <path class="conn-line" d="M 85 0 C 85 38, 50 38, 50 60" />
+    </svg>
+    <button type="button" class="run-button" id="run-button">Run Experiment</button>
+    <div class="stage-arrow"></div>
+  </div>
+
+  <!-- ===== Stage: Embedding =====
+       Initial class .stage-pending (gray-locked) — Run flips to
+       running → complete; form-drift (query/poison/reranker change)
+       resets back to pending. Three-state body line (pending /
+       running / complete) is updated by dashboard.js, sharing the
+       same DOM slot.
+       三态 body 一行文字(pending / running / complete),JS 在 stage
+       状态切换时改写,沿用 app.py _pv_render_embed 的呈现。 -->
+  <section class="pv-stage stage-pending" data-stage-id="stage_embed">
+    <div class="pv-stage-corner"></div>
+    <div class="pv-stage-title">Embedding</div>
+    <div class="pv-stage-caption">
+      <code>all-MiniLM-L6-v2</code> &middot; cached
+    </div>
+    <div class="pv-embed-body pending" id="stage_embed-body">
+      pending &mdash; waits for query
+    </div>
+  </section>
+
+  <div class="stage-arrow"></div>
+
+  <!-- ===== Stage: FAISS Vector Retrieval (top-k₁) =====
+       cmp-cols is a CSS Grid (cols=1fr 1fr, align-items:stretch).
+       Two .cmp-col-head children occupy row 1; dashboard.js appends
+       disp-item children in row-interleaved order (rank-1 clean,
+       rank-1 poisoned, rank-2 clean, rank-2 poisoned, ...). Same
+       grid row → equal height left/right cells. -->
+  <section class="pv-stage stage-pending" data-stage-id="stage_search">
+    <div class="pv-stage-corner"></div>
+    <div class="pv-stage-title">FAISS Vector Retrieval</div>
+    <div class="pv-stage-caption">
+      top-k&#8321; = {{ top_k_1 }} &middot; clean vs poisoned
+    </div>
+    <div class="cmp-cols" id="stage_search-grid">
+      <div class="cmp-col-head">clean</div>
+      <div class="cmp-col-head">poisoned</div>
+    </div>
+  </section>
+
+  <div class="stage-arrow"></div>
+
+  <!-- Reranker selector on the search → rerank arrow -->
+  <div class="arrow-widget">
+    <div class="arrow-widget-label">Reranker model</div>
+    <select id="reranker">
+      {% for opt in rerankers %}
+      <option value="{{ opt.key }}">{{ opt.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="stage-arrow"></div>
+
+  <!-- ===== Stage: LLM Reranker (top-k₂) ===== -->
+  <section class="pv-stage stage-pending" data-stage-id="stage_rerank">
+    <div class="pv-stage-corner"></div>
+    <div class="pv-stage-title">LLM Reranker</div>
+    <div class="pv-stage-caption">
+      via OpenRouter &middot; top-k&#8322; = {{ top_k_2 }} &middot; clean vs poisoned
+    </div>
+    <div class="cmp-cols" id="stage_rerank-grid">
+      <div class="cmp-col-head">clean</div>
+      <div class="cmp-col-head">poisoned</div>
+    </div>
+  </section>
+
+  <div class="stage-arrow"></div>
+
+  <!-- Generator (Stage 3) toggle on the rerank → generate arrow -->
+  <div class="arrow-widget">
+    <label class="toggle">
+      <input type="checkbox" id="stage3-toggle" />
+      <span class="switch"></span>
+      <span>Show generated answer (Stage 3)</span>
+    </label>
+  </div>
+
+  <div class="stage-arrow"></div>
+
+  <!-- ===== Stage: LLM Generator (Stage 3) ===== -->
+  <section class="pv-stage stage-pending" data-stage-id="stage_generate">
+    <div class="pv-stage-corner"></div>
+    <div class="pv-stage-title">LLM Generator</div>
+    <div class="pv-stage-caption">
+      <code>{{ generator_model }}</code> &middot; Fixed
+    </div>
+    <!-- Toggle OFF: show a single skipped-hint line. Toggle ON: hint
+         disappears, cmp-cols slot is filled with two .disp-answer panels. -->
+    <div class="pv-stage-caption" id="stage_generate-skipped-hint"
+         style="margin-top: 6px;">
+      Generation skipped &mdash; turn the switch above on to view.
+    </div>
+    <!-- Same grid structure as stage_search/rerank — 2 heads row + 2
+         answer cells row. CSS .cmp-cols[hidden] removes the grid from
+         layout entirely when toggle is OFF. -->
+    <div class="cmp-cols" id="stage_generate-cmpcols" hidden>
+      <div class="cmp-col-head">clean</div>
+      <div class="cmp-col-head">poisoned</div>
+      <div class="disp-answer clean" id="stage_generate-clean"></div>
+      <div class="disp-answer poisoned" id="stage_generate-poisoned"></div>
+    </div>
+  </section>
+
+</div>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
